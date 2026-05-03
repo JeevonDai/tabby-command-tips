@@ -13,3 +13,9 @@ export class ConsoleLogger extends Logger {
 export abstract class LogService {
   abstract create (name: string): Logger
 }
+
+export abstract class ConfigService {
+  abstract get store (): any
+  abstract save (): void
+  abstract changed$: any
+}

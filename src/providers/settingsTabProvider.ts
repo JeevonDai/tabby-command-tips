@@ -4,12 +4,12 @@ import { SettingsTabComponent } from '../settings/settingsTab.component'
 
 @Injectable()
 export class CommandTipsSettingsTabProvider extends SettingsTabProvider {
-  async getTabs () {
-    return [{
-      type: 'component',
-      title: '命令历史提示',
-      icon: 'fas fa-history',
-      component: SettingsTabComponent,
-    }]
+  id = 'command-tips'
+  icon = 'fas fa-history'
+  title = '命令历史提示'
+  weight = 0
+
+  getComponentType (): any {
+    return SettingsTabComponent
   }
 }

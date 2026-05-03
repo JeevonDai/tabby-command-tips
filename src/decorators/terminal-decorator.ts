@@ -1,5 +1,5 @@
-import { Injectable, ComponentRef, Injector } from '@angular/core'
-import { Subscription, Subject } from 'rxjs'
+import { Injectable, ComponentRef, Injector, ViewContainerRef, ComponentFactoryResolver } from '@angular/core'
+import { Subscription } from 'rxjs'
 import { ConfigService } from 'tabby-core'
 import { TerminalDecorator, BaseTerminalTabComponent } from 'tabby-terminal'
 import { MatchingService, MatchResult } from '../services/matching.service'
@@ -19,8 +19,6 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
   private currentProfileId = ''
   private currentShellType = 'bash'
   private matchDebounceTimer: any = null
-  private commandSelected$ = new Subject<string>()
-  private commandCancelled$ = new Subject<void>()
 
   constructor (
     private matchingService: MatchingService,
@@ -29,6 +27,7 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
     private historyService: HistoryService,
     private configService: ConfigService,
     private injector: Injector,
+    private cfr: ComponentFactoryResolver,
   ) {
     super()
     this.config = this.configService.store.commandTips || DEFAULT_CONFIG
@@ -52,10 +51,11 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
   }
 
   private createDropdown (tab: BaseTerminalTabComponent): void {
-    const container = tab.viewContainerRef || (tab as any)._viewContainerRef
-    if (!container) return
+    const viewContainer: ViewContainerRef | undefined = (tab as any).viewContainer
+    if (!viewContainer) return
 
-    this.dropdownRef = container.createComponent(DropdownComponent, { injector: this.injector })
+    const factory = this.cfr.resolveComponentFactory(DropdownComponent)
+    this.dropdownRef = viewContainer.createComponent(factory)
 
     this.dropdownRef.instance.selected.subscribe((command: string) => {
       this.injectCommand(tab.session, command)
@@ -70,7 +70,7 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
       }
     })
 
-    const hostEl = tab.elementRef?.nativeElement || (tab as any).element?.nativeElement
+    const hostEl = (tab as any).element?.nativeElement
     if (hostEl) {
       hostEl.style.position = 'relative'
       hostEl.appendChild(this.dropdownRef.location.nativeElement)
@@ -82,12 +82,12 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
     const processName = session.processName || ''
     const shellInfo = this.shellDetector.detect(env, processName)
     this.currentShellType = shellInfo.type !== 'unknown' ? shellInfo.type : 'bash'
-    this.currentProfileId = tab.profile?.id || 'default'
+    this.currentProfileId = (tab as any).profile?.id || 'default'
 
     this.loadShellHistory(shellInfo.historyFile)
 
     const inputSub = tab.input$.subscribe(data => {
-      this.onInput(tab, session, data)
+      this.onInput(tab, data)
     })
     this.subscriptions.push(inputSub)
   }
@@ -112,7 +112,7 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
     }
   }
 
-  private onInput (tab: BaseTerminalTabComponent, session: any, data: Buffer): void {
+  private onInput (tab: BaseTerminalTabComponent, data: Buffer): void {
     const str = data.toString()
 
     for (const char of str) {
@@ -191,14 +191,15 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
 
   private injectCommand (session: any, command: string): void {
     if (!session) return
-    const backspaces = Buffer.alloc(this.currentInput.length, '\x7f')
-    session.write(backspaces)
+    for (let i = 0; i < this.currentInput.length; i++) {
+      session.write(Buffer.from('\x7f'))
+    }
     session.write(Buffer.from(command))
     this.currentInput = command
     this.hideDropdown()
   }
 
-  dispose (): void {
+  detach (tab: BaseTerminalTabComponent): void {
     for (const sub of this.subscriptions) {
       sub.unsubscribe()
     }

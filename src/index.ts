@@ -3,7 +3,6 @@ import { CommonModule } from '@angular/common'
 import { FormsModule } from '@angular/forms'
 import { NgbModule } from '@ng-bootstrap/ng-bootstrap'
 import { ConfigProvider, HotkeyProvider } from 'tabby-core'
-import AppModule from 'tabby-core'
 import { SettingsTabProvider } from 'tabby-settings'
 import { TerminalDecorator } from 'tabby-terminal'
 import { CommandTipsConfigProvider } from './providers/configProvider'
@@ -18,7 +17,6 @@ import { SettingsTabComponent } from './settings/settingsTab.component'
     CommonModule,
     FormsModule,
     NgbModule,
-    AppModule,
   ],
   declarations: [
     DropdownComponent,

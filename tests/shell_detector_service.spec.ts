@@ -1,4 +1,5 @@
-import { ShellDetectorService, ShellInfo } from '../src/services/shell-detector.service'
+// ShellDetectorService 的单元测试，验证从环境变量和进程名检测 Shell 类型的逻辑
+import { ShellDetectorService, ShellInfo } from '../src/services/shell_detector_service'
 
 // Mock LogService for tests
 const mockLogService = {
@@ -72,7 +73,7 @@ describe('ShellDetectorService', () => {
     it('优先使用 SHELL 环境变量', () => {
       const result = service.detect(
         { SHELL: '/bin/zsh' },
-        'bash'
+        'bash',
       )
       expect(result.type).toBe('zsh')
     })

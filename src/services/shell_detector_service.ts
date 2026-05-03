@@ -1,11 +1,15 @@
+/** Shell 检测服务：通过环境变量或进程名识别当前 Shell 类型及历史文件路径。 */
+
 import { Injectable } from '@angular/core'
 import { LogService, Logger } from 'tabby-core'
 
+/** Shell 检测结果，包含类型标识和对应的历史文件路径。 */
 export interface ShellInfo {
   type: 'bash' | 'zsh' | 'fish' | 'powershell' | 'unknown'
   historyFile: string | null
 }
 
+/** Shell 名称到类型和历史文件路径的映射表。 */
 const SHELL_MAP: Record<string, { type: ShellInfo['type']; historyFile: string }> = {
   bash: {
     type: 'bash',
@@ -29,15 +33,17 @@ const SHELL_MAP: Record<string, { type: ShellInfo['type']; historyFile: string }
   },
 }
 
-@Injectable({ providedIn: 'root' })
+/** Shell 检测器，优先通过环境变量识别，回退到进程名匹配。 */
+@Injectable()
 export class ShellDetectorService {
-  private logger: Logger
+  private readonly logger: Logger
 
   constructor (private log: LogService) {
     this.logger = log.create('command-tips')
   }
 
-  detectFromEnv (env: Record<string, string>): ShellInfo {
+  /** 从 SHELL 环境变量识别 Shell 类型。 */
+  public detectFromEnv (env: Record<string, string>): ShellInfo {
     const shellPath = env.SHELL
     if (!shellPath) {
       return { type: 'unknown', historyFile: null }
@@ -45,7 +51,8 @@ export class ShellDetectorService {
     return this.matchShellFromPath(shellPath)
   }
 
-  detectFromProcessName (processName: string): ShellInfo {
+  /** 从终端进程名称识别 Shell 类型，支持 .exe 后缀。 */
+  public detectFromProcessName (processName: string): ShellInfo {
     const clean = processName.replace(/\.exe$/i, '').toLowerCase()
     if (SHELL_MAP[clean]) {
       return { ...SHELL_MAP[clean] }
@@ -58,7 +65,8 @@ export class ShellDetectorService {
     return { type: 'unknown', historyFile: null }
   }
 
-  detect (env: Record<string, string>, processName: string): ShellInfo {
+  /** 综合检测：优先使用环境变量，回退到进程名匹配。 */
+  public detect (env: Record<string, string>, processName: string): ShellInfo {
     const fromEnv = this.detectFromEnv(env)
     if (fromEnv.type !== 'unknown') {
       return fromEnv

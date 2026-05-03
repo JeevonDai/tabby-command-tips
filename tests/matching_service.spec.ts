@@ -1,4 +1,5 @@
-import { MatchingService, MatchResult } from '../src/services/matching.service'
+// MatchingService 的单元测试，验证前缀匹配、模糊匹配及组合模式的正确性
+import { MatchingService, MatchResult } from '../src/services/matching_service'
 import { HistoryEntry } from '../src/models'
 
 function makeEntry(command: string, count = 1): HistoryEntry {

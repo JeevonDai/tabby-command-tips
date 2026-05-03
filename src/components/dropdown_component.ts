@@ -1,9 +1,21 @@
-import { Component, Input, Output, EventEmitter, ElementRef, ViewChild, OnChanges, SimpleChanges, HostListener } from '@angular/core'
-import { MatchResult } from '../services/matching.service'
+/** 命令建议下拉列表组件，支持键盘和鼠标交互选择。 */
+import {
+  Component,
+  ElementRef,
+  EventEmitter,
+  HostListener,
+  Input,
+  OnChanges,
+  Output,
+  SimpleChanges,
+  ViewChild,
+} from '@angular/core'
+
+import { MatchResult } from '../services/matching_service'
 
 @Component({
-  template: require('./dropdown.component.pug'),
-  styles: [require('./dropdown.component.scss')],
+  template: require('./dropdown_component.pug'),
+  styles: [require('./dropdown_component.scss')],
 })
 export class DropdownComponent implements OnChanges {
   @Input() suggestions: MatchResult[] = []
@@ -58,6 +70,7 @@ export class DropdownComponent implements OnChanges {
     }
   }
 
+  /** 将选中项上移一行。 */
   moveUp (): void {
     if (this.selectedIndex > 0) {
       this.selectedIndex--
@@ -65,6 +78,7 @@ export class DropdownComponent implements OnChanges {
     }
   }
 
+  /** 将选中项下移一行。 */
   moveDown (): void {
     if (this.selectedIndex < this.suggestions.length - 1) {
       this.selectedIndex++
@@ -72,6 +86,7 @@ export class DropdownComponent implements OnChanges {
     }
   }
 
+  /** 确认当前选中的命令，触发 selected 事件。 */
   confirmSelected (): void {
     if (this.suggestions.length > 0) {
       this.selected.emit(this.suggestions[this.selectedIndex].entry.command)
@@ -82,6 +97,7 @@ export class DropdownComponent implements OnChanges {
     this.tabPressed.emit()
   }
 
+  /** 取消选择，触发 cancelled 事件。 */
   cancel (): void {
     this.cancelled.emit()
   }

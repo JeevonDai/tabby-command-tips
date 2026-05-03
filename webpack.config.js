@@ -1,21 +1,28 @@
 const path = require('path')
 
 module.exports = {
-  target: 'electron-renderer',
+  target: 'node',
+  mode: 'development',
+  devtool: 'source-map',
   entry: './src/index.ts',
   output: {
     path: path.resolve(__dirname, 'dist'),
     filename: 'index.js',
-    libraryTarget: 'commonjs2',
+    libraryTarget: 'umd',
+    devtoolModuleFilenameTemplate: 'webpack-tabby-command-tips:///[resource-path]',
   },
   resolve: {
     extensions: ['.ts', '.js', '.pug', '.scss'],
+    modules: [path.join(__dirname, '.'), path.join(__dirname, 'src'), 'node_modules'],
   },
   module: {
     rules: [
       {
         test: /\.ts$/,
-        use: 'ts-loader',
+        use: [{
+          loader: 'ts-loader',
+          options: { configFile: 'tsconfig.json' },
+        }],
         exclude: /node_modules/,
       },
       {
@@ -24,13 +31,16 @@ module.exports = {
       },
       {
         test: /\.scss$/,
-        use: ['style-loader', 'css-loader', 'sass-loader'],
+        use: ['to-string-loader', 'css-loader', 'sass-loader'],
       },
     ],
   },
-  externals: {
-    'tabby-core': 'tabby-core',
-    'tabby-settings': 'tabby-settings',
-    'tabby-terminal': 'tabby-terminal',
-  },
+  externals: [
+    'fs',
+    'ngx-toastr',
+    /^rxjs/,
+    /^@angular/,
+    /^@ng-bootstrap/,
+    /^tabby-/,
+  ],
 }

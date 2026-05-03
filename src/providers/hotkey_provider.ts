@@ -1,3 +1,4 @@
+/** 注册插件的快捷键描述，供 Tabby 设置页面展示。 */
 import { Injectable } from '@angular/core'
 import { HotkeyProvider, HotkeyDescription } from 'tabby-core'
 

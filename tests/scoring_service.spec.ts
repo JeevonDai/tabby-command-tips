@@ -1,5 +1,6 @@
-import { ScoringService } from '../src/services/scoring.service'
-import { MatchResult } from '../src/services/matching.service'
+// ScoringService 的单元测试，验证基于时效性和使用频率的评分与排序逻辑
+import { ScoringService } from '../src/services/scoring_service'
+import { MatchResult } from '../src/services/matching_service'
 import { HistoryEntry } from '../src/models'
 
 function makeEntry(command: string, timestamp: number, count: number): HistoryEntry {

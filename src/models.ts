@@ -1,3 +1,4 @@
+/** 历史命令条目的数据结构。 */
 export interface HistoryEntry {
   command: string
   source: 'shell' | 'tabby'
@@ -7,6 +8,7 @@ export interface HistoryEntry {
   count: number
 }
 
+/** 插件配置的数据结构，控制匹配、排序和显示行为。 */
 export interface CommandTipsConfig {
   enabled: boolean
   minChars: number
@@ -22,6 +24,7 @@ export interface CommandTipsConfig {
   tabCompletesFirst: boolean
 }
 
+/** 插件的默认配置值。 */
 export const DEFAULT_CONFIG: CommandTipsConfig = {
   enabled: true,
   minChars: 2,

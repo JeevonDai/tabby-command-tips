@@ -1,4 +1,5 @@
-import { HistoryService } from '../src/services/history.service'
+// HistoryService 的单元测试，验证各 Shell 历史解析、合并、记录与清空逻辑
+import { HistoryService } from '../src/services/history_service'
 import { HistoryEntry } from '../src/models'
 
 const mockConfigService = {

@@ -1,13 +1,18 @@
+/** 命令历史服务：管理 Shell 历史文件解析、Tabby 内命令记录及持久化存储。 */
+
 import { Injectable } from '@angular/core'
 import { ConfigService, LogService, Logger } from 'tabby-core'
+
 import { HistoryEntry } from '../models'
 
+/** Tabby 配置存储中命令历史数据的键名。 */
 const STORAGE_KEY = 'commandTipsHistory'
 
-@Injectable({ providedIn: 'root' })
+/** 命令历史管理器，负责解析各 Shell 历史文件、记录 Tabby 内命令及持久化存储。 */
+@Injectable()
 export class HistoryService {
-  private logger: Logger
-  private tabbyHistory: Map<string, HistoryEntry[]> = new Map()
+  private readonly logger: Logger
+  private readonly tabbyHistory: Map<string, HistoryEntry[]> = new Map()
 
   constructor (
     private configService: ConfigService,
@@ -19,11 +24,20 @@ export class HistoryService {
 
   private loadFromStorage (): void {
     try {
-      const stored = this.configService.store[STORAGE_KEY]
+      const cs = this.configService as any
+      // 尝试多种方式读取
+      let stored: any = cs._store?.[STORAGE_KEY]
+      if (!stored) {
+        try { stored = cs.__getValue?.(STORAGE_KEY) } catch (e) { /* ignore */ }
+      }
+      if (!stored) {
+        try { stored = this.configService.store[STORAGE_KEY] } catch (e) { /* ignore */ }
+      }
       if (stored && typeof stored === 'object') {
         for (const [profileId, entries] of Object.entries(stored)) {
           this.tabbyHistory.set(profileId, entries as HistoryEntry[])
         }
+        this.logger.info(`Loaded history for ${this.tabbyHistory.size} profiles`)
       }
     } catch (err) {
       this.logger.warn('Failed to load history from storage:', err)
@@ -36,14 +50,21 @@ export class HistoryService {
       for (const [profileId, entries] of this.tabbyHistory) {
         obj[profileId] = entries
       }
-      this.configService.store[STORAGE_KEY] = obj
+      const cs = this.configService as any
+      // 尝试多种方式写入
+      if (typeof cs.__setValue === 'function') {
+        cs.__setValue(STORAGE_KEY, obj)
+      } else if (cs._store) {
+        cs._store[STORAGE_KEY] = obj
+      }
       this.configService.save()
     } catch (err) {
       this.logger.warn('Failed to save history to storage:', err)
     }
   }
 
-  mergeEntries (shellEntries: HistoryEntry[], tabbyEntries: HistoryEntry[]): HistoryEntry[] {
+  /** 合并 Shell 历史和 Tabby 记录，相同命令的计数和时间戳取最大值。 */
+  public mergeEntries (shellEntries: HistoryEntry[], tabbyEntries: HistoryEntry[]): HistoryEntry[] {
     const map = new Map<string, HistoryEntry>()
 
     for (const entry of shellEntries) {
@@ -66,7 +87,8 @@ export class HistoryService {
     return Array.from(map.values())
   }
 
-  parseBashHistory (content: string, shellType: string, profileId: string): HistoryEntry[] {
+  /** 解析 Bash 历史文件，每行为一条命令。 */
+  public parseBashHistory (content: string, shellType: string, profileId: string): HistoryEntry[] {
     return content
       .split('\n')
       .map(line => line.trim())
@@ -81,7 +103,8 @@ export class HistoryService {
       }))
   }
 
-  parseZshHistory (content: string, shellType: string, profileId: string): HistoryEntry[] {
+  /** 解析 Zsh 历史文件，支持 `: timestamp:duration;command` 扩展格式。 */
+  public parseZshHistory (content: string, shellType: string, profileId: string): HistoryEntry[] {
     return content
       .split('\n')
       .map(line => line.trim())
@@ -109,7 +132,8 @@ export class HistoryService {
       })
   }
 
-  parseFishHistory (content: string, shellType: string, profileId: string): HistoryEntry[] {
+  /** 解析 Fish 历史文件，支持 `- cmd:` / `  when:` 多行格式。 */
+  public parseFishHistory (content: string, shellType: string, profileId: string): HistoryEntry[] {
     const entries: HistoryEntry[] = []
     const lines = content.split('\n')
     let currentCmd: string | null = null
@@ -139,7 +163,8 @@ export class HistoryService {
     return entries
   }
 
-  parsePowerShellHistory (content: string, shellType: string, profileId: string): HistoryEntry[] {
+  /** 解析 PowerShell (PSReadLine) 历史文件，每行为一条命令。 */
+  public parsePowerShellHistory (content: string, shellType: string, profileId: string): HistoryEntry[] {
     return content
       .split('\n')
       .map(line => line.trim())
@@ -154,7 +179,8 @@ export class HistoryService {
       }))
   }
 
-  parseHistoryContent (content: string, shellType: string, profileId: string): HistoryEntry[] {
+  /** 根据 Shell 类型分派到对应的解析方法。 */
+  public parseHistoryContent (content: string, shellType: string, profileId: string): HistoryEntry[] {
     switch (shellType) {
       case 'zsh':
         return this.parseZshHistory(content, shellType, profileId)
@@ -167,7 +193,8 @@ export class HistoryService {
     }
   }
 
-  recordCommand (command: string, profileId: string, shellType: string): void {
+  /** 记录用户在 Tabby 中执行的命令，更新计数和时间戳并持久化。 */
+  public recordCommand (command: string, profileId: string, shellType: string): void {
     if (!command.trim()) return
 
     let entries = this.tabbyHistory.get(profileId) || []
@@ -191,21 +218,27 @@ export class HistoryService {
     this.saveToStorage()
   }
 
-  getTabbyEntries (profileId: string): HistoryEntry[] {
+  /** 获取指定 Profile 的 Tabby 记录条目。 */
+  public getTabbyEntries (profileId: string): HistoryEntry[] {
     return this.tabbyHistory.get(profileId) || []
   }
 
-  clearProfile (profileId: string): void {
+  /** 清空指定 Profile 的 Tabby 记录并持久化。 */
+  public clearProfile (profileId: string): void {
     this.tabbyHistory.set(profileId, [])
     this.saveToStorage()
   }
 
-  setTabbyEntries (profileId: string, entries: HistoryEntry[]): void {
+  public setTabbyEntries (profileId: string, entries: HistoryEntry[]): void {
     this.tabbyHistory.set(profileId, entries)
     this.saveToStorage()
   }
 
-  getProfileCount (profileId: string): number {
+  public getProfileCount (profileId: string): number {
     return (this.tabbyHistory.get(profileId) || []).length
+  }
+
+  public getAllProfileIds (): string[] {
+    return Array.from(this.tabbyHistory.keys())
   }
 }

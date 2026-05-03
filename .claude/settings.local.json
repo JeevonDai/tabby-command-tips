@@ -15,7 +15,11 @@
       "Bash(node node_modules/ts-node/dist/bin.js -P tsconfig.test.json node_modules/jasmine/bin/jasmine --config=jasmine.json)",
       "Bash(node -r tsconfig-paths/register node_modules/ts-node/dist/bin.js -P tsconfig.test.json node_modules/jasmine/bin/jasmine --config=jasmine.json)",
       "Bash(npm run *)",
-      "Bash(node -e \"const m = require\\('tabby-core'\\); console.log\\(Object.keys\\(m\\).filter\\(k => k.includes\\('Module'\\) || k.includes\\('App'\\)\\)\\)\")"
+      "Bash(node -e \"const m = require\\('tabby-core'\\); console.log\\(Object.keys\\(m\\).filter\\(k => k.includes\\('Module'\\) || k.includes\\('App'\\)\\)\\)\")",
+      "WebFetch(domain:google.github.io)",
+      "Bash(git mv *)",
+      "Bash(npm test *)",
+      "Bash(npx jasmine *)"
     ]
   }
 }

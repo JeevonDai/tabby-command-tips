@@ -1,0 +1,43 @@
+{
+  "name": "tabby-command-tips",
+  "version": "1.0.0",
+  "description": "Tabby 终端命令历史提示插件，根据输入实时匹配历史命令并以下拉列表展示",
+  "main": "dist/index.js",
+  "typings": "dist/index.d.ts",
+  "keywords": ["tabby-plugin"],
+  "author": "",
+  "license": "MIT",
+  "scripts": {
+    "build": "webpack --progress --color",
+    "watch": "webpack --progress --color --watch",
+    "test": "ts-node node_modules/jasmine/bin/jasmine --config=jasmine.json",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "@angular/animations": "^12.0.0",
+    "@angular/common": "^12.0.0",
+    "@angular/core": "^12.0.0",
+    "@angular/forms": "^12.0.0",
+    "@angular/platform-browser": "^12.0.0",
+    "@ng-bootstrap/ng-bootstrap": "^2.2.0",
+    "@types/webpack-env": "^1.16.0",
+    "@types/jasmine": "^3.10.0",
+    "apply-loader": "^2.0.0",
+    "css-loader": "^5.2.0",
+    "jasmine": "^3.10.0",
+    "node-sass": "^5.0.0",
+    "pug": "^2.0.3",
+    "pug-loader": "^2.4.0",
+    "rxjs": "^7.3.0",
+    "sass-loader": "^11.0.0",
+    "style-loader": "^2.0.0",
+    "tabby-core": "^1.0.156",
+    "tabby-settings": "^1.0.156",
+    "tabby-terminal": "^1.0.156",
+    "ts-loader": "^9.2.0",
+    "ts-node": "^10.4.0",
+    "typescript": "^4.2.3",
+    "webpack": "^5.24.4",
+    "webpack-cli": "^4.5.0"
+  }
+}

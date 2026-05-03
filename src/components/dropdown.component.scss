@@ -1,0 +1,97 @@
+.command-tips-dropdown {
+  position: absolute;
+  z-index: 1000;
+  min-width: 300px;
+  max-width: 600px;
+  max-height: 340px;
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  background: var(--theme-bg);
+  border: 1px solid var(--theme-border, rgba(255, 255, 255, 0.1));
+  font-family: var(--theme-font, monospace);
+  font-size: 13px;
+  color: var(--theme-fg);
+}
+
+.command-tips-header {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--theme-border, rgba(255, 255, 255, 0.1));
+  background: var(--theme-bg-secondary, rgba(255, 255, 255, 0.03));
+
+  .command-tips-input-preview {
+    color: var(--theme-fg-muted, rgba(255, 255, 255, 0.5));
+    font-style: italic;
+  }
+}
+
+.command-tips-list {
+  max-height: 260px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.command-tips-item {
+  display: flex;
+  align-items: center;
+  padding: 5px 10px;
+  cursor: pointer;
+  gap: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+
+  &:hover,
+  &.selected {
+    background: var(--theme-accent, #4a9eff);
+    color: var(--theme-bg, #1e1e1e);
+  }
+
+  &.fuzzy {
+    opacity: 0.8;
+  }
+}
+
+.command-tips-match-type {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: bold;
+  background: rgba(76, 175, 80, 0.3);
+  color: #4caf50;
+  flex-shrink: 0;
+
+  &.fuzzy-badge {
+    background: rgba(255, 193, 7, 0.3);
+    color: #ffc107;
+  }
+}
+
+.command-tips-command {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.command-tips-source {
+  font-size: 10px;
+  color: var(--theme-fg-muted, rgba(255, 255, 255, 0.4));
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.05);
+  flex-shrink: 0;
+}
+
+.command-tips-footer {
+  display: flex;
+  gap: 12px;
+  padding: 4px 10px;
+  border-top: 1px solid var(--theme-border, rgba(255, 255, 255, 0.1));
+  background: var(--theme-bg-secondary, rgba(255, 255, 255, 0.03));
+  font-size: 11px;
+  color: var(--theme-fg-muted, rgba(255, 255, 255, 0.4));
+}

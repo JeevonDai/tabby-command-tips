@@ -1,0 +1,20 @@
+.command-tips-dropdown(*ngIf='visible && suggestions.length > 0')
+  .command-tips-header
+    span.command-tips-input-preview {{ currentInput }}
+  .command-tips-list(#listContainer)
+    .command-tips-item(
+      *ngFor='let item of suggestions; let i = index',
+      [class.selected]='i === selectedIndex',
+      [class.fuzzy]='item.matchType === "fuzzy"',
+      (mouseenter)='onItemHover(i)',
+      (click)='onItemClick(i)'
+    )
+      span.command-tips-match-type(*ngIf='item.matchType === "prefix"') P
+      span.command-tips-match-type.fuzzy-badge(*ngIf='item.matchType === "fuzzy"') F
+      span.command-tips-command {{ item.entry.command }}
+      span.command-tips-source(*ngIf='showSourceTag') {{ item.entry.source }}
+  .command-tips-footer
+    span ↑↓ 选择
+    span Enter 确认
+    span Tab 补全
+    span Esc 取消

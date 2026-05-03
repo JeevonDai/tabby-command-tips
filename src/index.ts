@@ -1,7 +1,8 @@
 import { NgModule } from '@angular/core'
 import { CommonModule } from '@angular/common'
 import { FormsModule } from '@angular/forms'
-import { TabbyCoreModule } from 'tabby-core'
+import { TabbyCoreModule, ConfigProvider } from 'tabby-core'
+import { CommandTipsConfigProvider } from './providers/configProvider'
 
 @NgModule({
   imports: [
@@ -9,6 +10,8 @@ import { TabbyCoreModule } from 'tabby-core'
     FormsModule,
     TabbyCoreModule,
   ],
-  providers: [],
+  providers: [
+    { provide: ConfigProvider, useClass: CommandTipsConfigProvider, multi: true },
+  ],
 })
 export default class CommandTipsModule {}

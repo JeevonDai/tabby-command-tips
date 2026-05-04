@@ -1,25 +1,8 @@
 {
+  "extends": "./tsconfig.json",
   "compilerOptions": {
-    "target": "ES2020",
-    "module": "commonjs",
-    "lib": ["ES2020", "DOM"],
-    "moduleResolution": "node",
-    "emitDecoratorMetadata": true,
-    "experimentalDecorators": true,
-    "strict": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "outDir": "./dist",
     "rootDir": ".",
-    "declaration": true,
-    "sourceMap": true,
-    "baseUrl": ".",
-    "paths": {
-      "tabby-core": ["tests/mocks/tabby-core"],
-      "@angular/core": ["tests/mocks/angular-core"]
-    }
+    "outDir": "./dist-test"
   },
-  "include": ["src/**/*", "tests/**/*"],
-  "exclude": ["node_modules", "dist"]
+  "include": ["src/**/*", "tests/**/*"]
 }

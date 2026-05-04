@@ -33,6 +33,7 @@ npm run prepublishOnly
 
 ## Project Structure
 
+插件开发依据文档：https://docs.tabby.sh/ 
 ```
 src/
 ├── index.ts                          # NgModule 入口，注册所有服务和 Provider

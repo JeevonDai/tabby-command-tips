@@ -8,11 +8,17 @@ import { HistoryEntry } from '../models'
 /** Tabby 配置存储中命令历史数据的键名。 */
 const STORAGE_KEY = 'commandTipsHistory'
 
+/** 持久化 debounce 延迟（毫秒）。 */
+const SAVE_DEBOUNCE_MS = 2000
+
 /** 命令历史管理器，负责解析各 Shell 历史文件、记录 Tabby 内命令及持久化存储。 */
 @Injectable()
 export class HistoryService {
   private readonly logger: Logger
   private readonly tabbyHistory: Map<string, HistoryEntry[]> = new Map()
+  /** 命令→条目的二级索引，用于 O(1) 查找。 */
+  private readonly commandIndex: Map<string, Map<string, HistoryEntry>> = new Map()
+  private saveTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor (
     private configService: ConfigService,
@@ -25,7 +31,6 @@ export class HistoryService {
   private loadFromStorage (): void {
     try {
       const cs = this.configService as any
-      // 尝试多种方式读取
       let stored: any = cs._store?.[STORAGE_KEY]
       if (!stored) {
         try { stored = cs.__getValue?.(STORAGE_KEY) } catch (e) { /* ignore */ }
@@ -35,7 +40,9 @@ export class HistoryService {
       }
       if (stored && typeof stored === 'object') {
         for (const [profileId, entries] of Object.entries(stored)) {
-          this.tabbyHistory.set(profileId, entries as HistoryEntry[])
+          const list = entries as HistoryEntry[]
+          this.tabbyHistory.set(profileId, list)
+          this.rebuildIndex(profileId, list)
         }
         this.logger.info(`Loaded history for ${this.tabbyHistory.size} profiles`)
       }
@@ -44,14 +51,49 @@ export class HistoryService {
     }
   }
 
-  private saveToStorage (): void {
+  /** 重建指定 profile 的命令索引。 */
+  private rebuildIndex (profileId: string, entries: HistoryEntry[]): void {
+    const idx = new Map<string, HistoryEntry>()
+    for (const entry of entries) {
+      idx.set(entry.command, entry)
+    }
+    this.commandIndex.set(profileId, idx)
+  }
+
+  /** 获取指定 profile 的命令索引，惰性创建。 */
+  private getIndex (profileId: string): Map<string, HistoryEntry> {
+    let idx = this.commandIndex.get(profileId)
+    if (!idx) {
+      idx = new Map()
+      this.commandIndex.set(profileId, idx)
+      // 从现有条目构建索引
+      const entries = this.tabbyHistory.get(profileId) || []
+      for (const entry of entries) {
+        idx.set(entry.command, entry)
+      }
+    }
+    return idx
+  }
+
+  /** debounce 后持久化到存储。 */
+  private scheduleSave (): void {
+    if (this.saveTimer) {
+      clearTimeout(this.saveTimer)
+    }
+    this.saveTimer = setTimeout(() => {
+      this.saveTimer = null
+      this.flushSave()
+    }, SAVE_DEBOUNCE_MS)
+  }
+
+  /** 立即持久化到存储。 */
+  private flushSave (): void {
     try {
       const obj: Record<string, HistoryEntry[]> = {}
       for (const [profileId, entries] of this.tabbyHistory) {
         obj[profileId] = entries
       }
       const cs = this.configService as any
-      // 尝试多种方式写入
       if (typeof cs.__setValue === 'function') {
         cs.__setValue(STORAGE_KEY, obj)
       } else if (cs._store) {
@@ -197,25 +239,31 @@ export class HistoryService {
   public recordCommand (command: string, profileId: string, shellType: string): void {
     if (!command.trim()) return
 
-    let entries = this.tabbyHistory.get(profileId) || []
-    const existing = entries.find(e => e.command === command)
+    const idx = this.getIndex(profileId)
+    const existing = idx.get(command)
 
     if (existing) {
       existing.count++
       existing.timestamp = Date.now()
     } else {
-      entries.push({
+      const entry: HistoryEntry = {
         command,
         source: 'tabby',
         shellType,
         profileId,
         timestamp: Date.now(),
         count: 1,
-      })
+      }
+      let entries = this.tabbyHistory.get(profileId)
+      if (!entries) {
+        entries = []
+        this.tabbyHistory.set(profileId, entries)
+      }
+      entries.push(entry)
+      idx.set(command, entry)
     }
 
-    this.tabbyHistory.set(profileId, entries)
-    this.saveToStorage()
+    this.scheduleSave()
   }
 
   /** 获取指定 Profile 的 Tabby 记录条目。 */
@@ -226,12 +274,14 @@ export class HistoryService {
   /** 清空指定 Profile 的 Tabby 记录并持久化。 */
   public clearProfile (profileId: string): void {
     this.tabbyHistory.set(profileId, [])
-    this.saveToStorage()
+    this.commandIndex.set(profileId, new Map())
+    this.scheduleSave()
   }
 
   public setTabbyEntries (profileId: string, entries: HistoryEntry[]): void {
     this.tabbyHistory.set(profileId, entries)
-    this.saveToStorage()
+    this.rebuildIndex(profileId, entries)
+    this.scheduleSave()
   }
 
   public getProfileCount (profileId: string): number {
@@ -240,5 +290,14 @@ export class HistoryService {
 
   public getAllProfileIds (): string[] {
     return Array.from(this.tabbyHistory.keys())
+  }
+
+  /** 在插件卸载时确保数据写入存储。 */
+  public dispose (): void {
+    if (this.saveTimer) {
+      clearTimeout(this.saveTimer)
+      this.saveTimer = null
+      this.flushSave()
+    }
   }
 }

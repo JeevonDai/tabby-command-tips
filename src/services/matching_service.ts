@@ -57,7 +57,7 @@ export class MatchingService {
     return [...prefixResults, ...fuzzyResults]
   }
 
-  private isSubsequence (input: string, target: string): boolean {
+  public isSubsequence (input: string, target: string): boolean {
     let inputIdx = 0
     let targetIdx = 0
     while (inputIdx < input.length && targetIdx < target.length) {

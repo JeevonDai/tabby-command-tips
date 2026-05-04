@@ -24,7 +24,17 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
   private matchDebounceTimer: any = null
   private selectedIndex = 0
   private currentSuggestions: MatchResult[] = []
-  private attachedTab: BaseTerminalTabComponent | null = null
+  /** 当前激活的 tab（最后 attach 或 sessionChanged 的 tab）。 */
+  private activeTab: BaseTerminalTabComponent | null = null
+  /** 记录每个 tab 对应的 profileId，用于切换时恢复上下文。 */
+  private tabProfiles = new Map<BaseTerminalTabComponent, string>()
+  /** 记录每个 tab 对应的 shellType。 */
+  private tabShellTypes = new Map<BaseTerminalTabComponent, string>()
+  /** 标记列表 DOM 是否需要完整重建（结果集变化时置 true）。 */
+  private listDirty = true
+  /** 增量匹配缓存：上次匹配的输入和结果。 */
+  private lastMatchInput = ''
+  private lastMatchResults: MatchResult[] = []
 
   constructor (
     private readonly configService: ConfigService,
@@ -39,6 +49,7 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
     this.config = this.configService.store.commandTips || DEFAULT_CONFIG
     this.configService.changed$.subscribe(() => {
       this.config = this.configService.store.commandTips || DEFAULT_CONFIG
+      this.scoringService.invalidateCache()
     })
     this.logger.info('Decorator constructed')
   }
@@ -46,7 +57,15 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
   /** 将装饰器绑定到终端标签页，开始监听会话和输入事件 */
   attach (tab: BaseTerminalTabComponent): void {
     this.logger.info('attach() called')
-    this.attachedTab = tab
+    this.activeTab = tab
+
+    // 监听 tab 获得焦点事件，切换 tab 时更新 activeTab
+    const focusedSub = tab.focused$.subscribe(() => {
+      this.activeTab = tab
+      this.hideDropdown()
+      this.currentInput = ''
+    })
+    this.subscriptions.push(focusedSub)
 
     const sessionSub = tab.sessionChanged$.subscribe(session => {
       if (!session) return
@@ -54,6 +73,11 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
       this.onSessionChanged(tab, session)
     })
     this.subscriptions.push(sessionSub)
+
+    const inputSub = tab.input$.subscribe(data => {
+      this.onInput(tab, data)
+    })
+    this.subscriptions.push(inputSub)
 
     if (tab.session) {
       this.logger.info('Session already exists')
@@ -87,28 +111,23 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
       transform: translateX(-50%);
     `
 
-    // 输入预览
     const header = document.createElement('div')
     header.style.cssText = 'padding: 6px 10px; border-bottom: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.03);'
     header.innerHTML = '<span style="color: rgba(255,255,255,0.5); font-style: italic;" class="ct-input-preview"></span>'
     this.dropdownEl.appendChild(header)
 
-    // 列表容器
     const list = document.createElement('div')
     list.className = 'ct-list'
     list.style.cssText = 'max-height: 260px; overflow-y: auto; overflow-x: hidden;'
     this.dropdownEl.appendChild(list)
 
-    // 底部提示
     const footer = document.createElement('div')
     footer.style.cssText = 'display: flex; gap: 12px; padding: 4px 10px; border-top: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.03); font-size: 11px; color: rgba(255,255,255,0.4);'
     footer.innerHTML = '<span>↑↓ 选择</span><span>→ 补全</span><span>Enter 确认</span><span>Esc 取消</span>'
     this.dropdownEl.appendChild(footer)
 
-    // 挂载到 document.body
     document.body.appendChild(this.dropdownEl)
 
-    // 监听键盘事件
     document.addEventListener('keydown', this.onKeyDown, true)
 
     this.logger.info('Dropdown DOM created')
@@ -138,24 +157,22 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
         event.stopPropagation()
         this.hideDropdown()
         break
-      // Enter 不拦截，让终端正常执行命令
-      // onInput 中的 \r 处理会自动记录命令并隐藏下拉列表
     }
   }
 
   private moveSelection (delta: number): void {
     this.selectedIndex = Math.max(0, Math.min(this.currentSuggestions.length - 1, this.selectedIndex + delta))
-    this.renderList()
+    this.updateSelection()
   }
 
   private confirmSelection (): void {
     if (this.currentSuggestions.length === 0) return
     const command = this.currentSuggestions[this.selectedIndex].entry.command
-    this.injectCommand(this.attachedTab?.session, command)
+    this.injectCommand(this.activeTab?.session, command)
   }
 
-  /** 根据当前建议列表和选中索引重新渲染下拉列表中的每一项 */
-  private renderList (): void {
+  /** 完整渲染列表 DOM（仅在结果集变化时调用）。 */
+  private renderFullList (): void {
     if (!this.dropdownEl) return
     const list = this.dropdownEl.querySelector('.ct-list') as HTMLElement
     if (!list) return
@@ -164,6 +181,8 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
     for (let i = 0; i < this.currentSuggestions.length; i++) {
       const item = this.currentSuggestions[i]
       const el = document.createElement('div')
+      el.className = 'ct-item'
+      el.dataset.index = String(i)
       el.style.cssText = `
         padding: 5px 10px;
         cursor: pointer;
@@ -206,16 +225,42 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
         el.appendChild(src)
       }
 
-      el.addEventListener('mouseenter', () => {
-        this.selectedIndex = i
-        this.renderList()
-      })
-      el.addEventListener('click', () => {
-        this.selectedIndex = i
-        this.confirmSelection()
-      })
-
       list.appendChild(el)
+    }
+
+    // 事件委托：mouseenter/click 统一在容器上处理
+    list.onmouseenter = (e: MouseEvent) => {
+      const target = (e.target as HTMLElement).closest('.ct-item') as HTMLElement
+      if (!target) return
+      const idx = parseInt(target.dataset.index || '-1', 10)
+      if (idx >= 0 && idx !== this.selectedIndex) {
+        this.selectedIndex = idx
+        this.updateSelection()
+      }
+    }
+    list.onclick = (e: MouseEvent) => {
+      const target = (e.target as HTMLElement).closest('.ct-item') as HTMLElement
+      if (!target) return
+      const idx = parseInt(target.dataset.index || '-1', 10)
+      if (idx >= 0) {
+        this.selectedIndex = idx
+        this.confirmSelection()
+      }
+    }
+  }
+
+  /** 增量更新选中项样式（仅切换 CSS class，不重建 DOM）。 */
+  private updateSelection (): void {
+    if (!this.dropdownEl) return
+    const list = this.dropdownEl.querySelector('.ct-list') as HTMLElement
+    if (!list) return
+
+    const items = list.children
+    for (let i = 0; i < items.length; i++) {
+      const el = items[i] as HTMLElement
+      const isSelected = i === this.selectedIndex
+      el.style.background = isSelected ? 'var(--theme-accent, #4a9eff)' : 'transparent'
+      el.style.color = isSelected ? 'var(--theme-bg, #1e1e1e)' : 'inherit'
     }
   }
 
@@ -224,36 +269,43 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
     const env = session.environment || {}
     const processName = session.processName || ''
     const shellInfo = this.shellDetector.detect(env, processName)
-    this.currentShellType = shellInfo.type !== 'unknown' ? shellInfo.type : 'bash'
-    this.currentProfileId = (tab as any).profile?.id || 'default'
-    this.logger.info(`Shell: ${this.currentShellType}, Profile: ${this.currentProfileId}`)
+    const shellType = shellInfo.type !== 'unknown' ? shellInfo.type : 'bash'
+    const profileId = (tab as any).profile?.id || 'default'
+
+    // 记录 tab 的上下文信息
+    this.tabProfiles.set(tab, profileId)
+    this.tabShellTypes.set(tab, shellType)
+
+    this.activeTab = tab
+    this.currentShellType = shellType
+    this.currentProfileId = profileId
+    this.logger.info(`Shell: ${shellType}, Profile: ${profileId}`)
+
+    // 切换会话时隐藏旧下拉列表、重置输入状态
+    this.hideDropdown()
+    this.currentInput = ''
 
     this.loadShellHistory(shellInfo.historyFile)
-
-    const inputSub = tab.input$.subscribe(data => {
-      this.onInput(tab, data)
-    })
-    this.subscriptions.push(inputSub)
-    this.logger.info('Input subscription attached')
   }
 
-  /** 读取 Shell 历史文件并与 Tabby 历史合并 */
-  private loadShellHistory (historyFile: string | null): void {
+  /** 异步读取 Shell 历史文件并与 Tabby 历史合并，不阻塞主线程。 */
+  private async loadShellHistory (historyFile: string | null): Promise<void> {
     if (!historyFile) return
     try {
       const fs = require('fs')
       const os = require('os')
       const expandedPath = historyFile.replace(/^~/, os.homedir())
-      if (fs.existsSync(expandedPath)) {
-        const content = fs.readFileSync(expandedPath, 'utf-8')
-        const shellEntries = this.historyService.parseHistoryContent(
-          content, this.currentShellType, this.currentProfileId,
-        )
-        const tabbyEntries = this.historyService.getTabbyEntries(this.currentProfileId)
-        const merged = this.historyService.mergeEntries(shellEntries, tabbyEntries)
-        this.historyService.setTabbyEntries(this.currentProfileId, merged)
-        this.logger.info(`Loaded ${merged.length} history entries`)
-      }
+
+      if (!fs.existsSync(expandedPath)) return
+
+      const content = await fs.promises.readFile(expandedPath, 'utf-8')
+      const shellEntries = this.historyService.parseHistoryContent(
+        content, this.currentShellType, this.currentProfileId,
+      )
+      const tabbyEntries = this.historyService.getTabbyEntries(this.currentProfileId)
+      const merged = this.historyService.mergeEntries(shellEntries, tabbyEntries)
+      this.historyService.setTabbyEntries(this.currentProfileId, merged)
+      this.logger.info(`Loaded ${merged.length} history entries`)
     } catch (err) {
       // 静默忽略
     }
@@ -261,11 +313,19 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
 
   /** 逐字符解析终端输入，维护 currentInput 并触发匹配或记录命令 */
   private onInput (tab: BaseTerminalTabComponent, data: Buffer): void {
+    // 只处理当前激活 tab 的输入
+    if (tab !== this.activeTab) return
+
+    // 恢复该 tab 的上下文（可能被其他 tab 的 sessionChanged 覆盖）
+    const savedProfile = this.tabProfiles.get(tab)
+    const savedShell = this.tabShellTypes.get(tab)
+    if (savedProfile) this.currentProfileId = savedProfile
+    if (savedShell) this.currentShellType = savedShell
+
     const str = data.toString()
 
     for (const char of str) {
       if (char === '\r' || char === '\n') {
-        // 先用终端输出修正 currentInput（处理 Tab 补全的情况）
         this.syncInputFromOutput(tab)
         if (this.currentInput.trim()) {
           this.historyService.recordCommand(this.currentInput.trim(), this.currentProfileId, this.currentShellType)
@@ -292,11 +352,9 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
   // 从终端输出中同步实际的输入内容（处理 Tab 补全等场景）
   private syncInputFromOutput (tab: BaseTerminalTabComponent): void {
     try {
-      // 获取终端前端的屏幕内容
       const frontend = (tab as any).frontend
       if (!frontend) return
 
-      // 尝试从终端获取当前行内容
       const buffer = frontend.xterm?.buffer?.active
       if (!buffer) return
 
@@ -305,9 +363,6 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
 
       const lineText = cursorLine.translateToString(true)
       if (lineText && lineText.length > 0) {
-        // 获取提示符后的实际命令内容
-        // 通常提示符格式是 "user@host:~/path$ command"
-        // 取最后一个 $ 或 % 之后的内容
         const promptMatch = lineText.match(/[$%#>]\s*(.*)$/)
         if (promptMatch && promptMatch[1]) {
           const actualCommand = promptMatch[1].trim()
@@ -330,7 +385,7 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
     }, this.config.debounceMs)
   }
 
-  /** 执行匹配流程：获取历史、匹配、排序后显示下拉列表 */
+  /** 执行匹配流程：获取历史、匹配、排序后显示下拉列表。支持增量匹配缓存。 */
   private executeMatch (): void {
     if (!this.config.enabled) return
     if (this.currentInput.length < this.config.minChars) {
@@ -340,8 +395,25 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
 
     this.createDropdown()
 
-    const allEntries = this.historyService.getTabbyEntries(this.currentProfileId)
-    const matchResults = this.matchingService.execute(this.currentInput, allEntries, this.config.matching)
+    let matchResults: MatchResult[]
+
+    // 增量匹配：当新输入是旧输入的前缀扩展时，复用旧结果
+    if (this.lastMatchResults.length > 0 &&
+        this.currentInput.startsWith(this.lastMatchInput) &&
+        this.lastMatchInput.length >= this.config.minChars) {
+      const lower = this.currentInput.toLowerCase()
+      matchResults = this.lastMatchResults.filter(r =>
+        r.entry.command.toLowerCase().startsWith(lower) ||
+        this.matchingService.isSubsequence(lower, r.entry.command.toLowerCase()),
+      )
+    } else {
+      const allEntries = this.historyService.getTabbyEntries(this.currentProfileId)
+      matchResults = this.matchingService.execute(this.currentInput, allEntries, this.config.matching)
+    }
+
+    // 更新缓存
+    this.lastMatchInput = this.currentInput
+    this.lastMatchResults = matchResults
 
     if (matchResults.length === 0) {
       this.hideDropdown()
@@ -356,17 +428,20 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
 
     this.currentSuggestions = sortedResults
     this.selectedIndex = 0
+    this.listDirty = true
     this.showDropdown()
   }
 
   private showDropdown (): void {
     if (!this.dropdownEl) return
 
-    // 更新输入预览
     const preview = this.dropdownEl.querySelector('.ct-input-preview')
     if (preview) preview.textContent = this.currentInput
 
-    this.renderList()
+    if (this.listDirty) {
+      this.renderFullList()
+      this.listDirty = false
+    }
 
     this.dropdownEl.style.display = 'block'
     this.dropdownVisible = true
@@ -377,13 +452,16 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
     this.dropdownEl.style.display = 'none'
     this.dropdownVisible = false
     this.currentSuggestions = []
+    this.lastMatchInput = ''
+    this.lastMatchResults = []
   }
 
-  /** 将选中的命令注入终端：先删除当前输入，再写入新命令 */
+  /** 将选中的命令注入终端：批量删除当前输入，再写入新命令 */
   private injectCommand (session: any, command: string): void {
     if (!session) return
-    for (let i = 0; i < this.currentInput.length; i++) {
-      session.write(Buffer.from('\x7f'))
+    // 批量发送退格符，一次 write 调用
+    if (this.currentInput.length > 0) {
+      session.write(Buffer.from('\x7f'.repeat(this.currentInput.length)))
     }
     session.write(Buffer.from(command))
     this.currentInput = command
@@ -392,10 +470,23 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
 
   /** 解除装饰器绑定，清理所有订阅、定时器和 DOM 元素 */
   detach (tab: BaseTerminalTabComponent): void {
+    this.tabProfiles.delete(tab)
+    this.tabShellTypes.delete(tab)
+
+    // 只清理该 tab 相关的订阅
+    // 由于 subscriptions 数组中混合了 sessionSub 和 inputSub，
+    // 全部清理安全——detach 通常在 tab 关闭时调用
     for (const sub of this.subscriptions) {
       sub.unsubscribe()
     }
     this.subscriptions = []
+
+    if (this.activeTab === tab) {
+      this.activeTab = null
+      this.hideDropdown()
+      this.currentInput = ''
+    }
+
     if (this.matchDebounceTimer) {
       clearTimeout(this.matchDebounceTimer)
     }
@@ -404,5 +495,6 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
       this.dropdownEl = null
     }
     document.removeEventListener('keydown', this.onKeyDown, true)
+    this.historyService.dispose()
   }
 }

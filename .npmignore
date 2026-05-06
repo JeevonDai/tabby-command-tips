@@ -1,0 +1,15 @@
+src/
+tests/
+docs/
+scripts/
+.vscode/
+.claude/
+*.md
+!README.md
+*.json
+!package.json
+!dist/**/*.json
+tsconfig*.json
+jasmine.json
+webpack.config.js
+*.tgz

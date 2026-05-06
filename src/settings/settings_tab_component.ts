@@ -3,7 +3,7 @@ import { Component } from '@angular/core'
 import { ConfigService } from 'tabby-core'
 
 import { HistoryService } from '../services/history_service'
-import { CommandTipsConfig, DEFAULT_CONFIG } from '../models'
+import { CommandTipsConfig, DEFAULT_CONFIG, DEFAULT_LLM_CONFIG } from '../models'
 
 /** 插件的设置页面组件，负责配置的读取、展示与持久化 */
 @Component({
@@ -32,6 +32,16 @@ export class SettingsTabComponent {
         matching: stored.matching ?? DEFAULT_CONFIG.matching,
         showSourceTag: stored.showSourceTag ?? DEFAULT_CONFIG.showSourceTag,
         tabCompletesFirst: stored.tabCompletesFirst ?? DEFAULT_CONFIG.tabCompletesFirst,
+        llm: {
+          enabled: stored.llm?.enabled ?? DEFAULT_LLM_CONFIG.enabled,
+          provider: stored.llm?.provider ?? DEFAULT_LLM_CONFIG.provider,
+          endpoint: stored.llm?.endpoint ?? DEFAULT_LLM_CONFIG.endpoint,
+          apiKey: stored.llm?.apiKey ?? DEFAULT_LLM_CONFIG.apiKey,
+          model: stored.llm?.model ?? DEFAULT_LLM_CONFIG.model,
+          maxResults: stored.llm?.maxResults ?? DEFAULT_LLM_CONFIG.maxResults,
+          timeoutMs: stored.llm?.timeoutMs ?? DEFAULT_LLM_CONFIG.timeoutMs,
+          modes: stored.llm?.modes ?? DEFAULT_LLM_CONFIG.modes,
+        },
       }
     }
   }
@@ -59,6 +69,20 @@ export class SettingsTabComponent {
     store.matching = this.config.matching
     store.showSourceTag = this.config.showSourceTag
     store.tabCompletesFirst = this.config.tabCompletesFirst
+
+    // 保存 LLM 配置
+    if (!store.llm) {
+      store.llm = { ...DEFAULT_LLM_CONFIG }
+    }
+    store.llm.enabled = this.config.llm.enabled
+    store.llm.provider = this.config.llm.provider
+    store.llm.endpoint = this.config.llm.endpoint
+    store.llm.apiKey = this.config.llm.apiKey
+    store.llm.model = this.config.llm.model
+    store.llm.maxResults = this.config.llm.maxResults
+    store.llm.timeoutMs = this.config.llm.timeoutMs
+    store.llm.modes = this.config.llm.modes
+
     this.configService.save()
   }
 

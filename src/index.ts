@@ -11,6 +11,7 @@ import { CommandTipsConfigProvider } from './providers/config_provider'
 import { CommandTipsHotkeyProvider } from './providers/hotkey_provider'
 import { CommandTipsSettingsTabProvider } from './providers/settings_tab_provider'
 import { HistoryService } from './services/history_service'
+import { LlmService } from './services/llm_service'
 import { MatchingService } from './services/matching_service'
 import { ScoringService } from './services/scoring_service'
 import { ShellDetectorService } from './services/shell_detector_service'
@@ -32,6 +33,7 @@ import { SettingsTabComponent } from './settings/settings_tab_component'
     ScoringService,
     ShellDetectorService,
     HistoryService,
+    LlmService,
     { provide: ConfigProvider, useClass: CommandTipsConfigProvider, multi: true },
     { provide: HotkeyProvider, useClass: CommandTipsHotkeyProvider, multi: true },
     { provide: SettingsTabProvider, useClass: CommandTipsSettingsTabProvider, multi: true },

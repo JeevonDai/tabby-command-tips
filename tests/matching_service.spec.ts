@@ -1,6 +1,7 @@
 // MatchingService 的单元测试，验证前缀匹配、模糊匹配及组合模式的正确性
 import { MatchingService, MatchResult } from '../src/services/matching_service'
-import { HistoryEntry } from '../src/models'
+import { LlmService } from '../src/services/llm_service'
+import { HistoryEntry, LlmContext, DEFAULT_LLM_CONFIG } from '../src/models'
 
 function makeEntry(command: string, count = 1): HistoryEntry {
   return {
@@ -15,9 +16,11 @@ function makeEntry(command: string, count = 1): HistoryEntry {
 
 describe('MatchingService', () => {
   let service: MatchingService
+  let llmService: LlmService
 
   beforeEach(() => {
-    service = new MatchingService()
+    llmService = new LlmService()
+    service = new MatchingService(llmService)
   })
 
   describe('prefixMatch', () => {
@@ -127,6 +130,71 @@ describe('MatchingService', () => {
       expect(commands).toContain('git status')
       expect(commands).toContain('git stash')
       expect(new Set(commands).size).toBe(commands.length)
+    })
+  })
+
+  describe('executeWithLlm', () => {
+    const llmContext: LlmContext = {
+      currentDirectory: '/home/user',
+      recentCommands: ['ls', 'cd'],
+      shellType: 'bash',
+      currentUser: 'user',
+    }
+
+    it('should return history results when LLM is not available', (done) => {
+      const entries = [makeEntry('git status')]
+      service.executeWithLlm('git', entries, 'prefix-fuzzy', llmContext).subscribe({
+        next: (results) => {
+          expect(results.length).toBe(1)
+          expect(results[0].matchType).toBe('prefix')
+          done()
+        },
+      })
+    })
+
+    it('should return empty array for empty input', (done) => {
+      const entries = [makeEntry('git status')]
+      service.executeWithLlm('', entries, 'prefix-fuzzy', llmContext).subscribe({
+        next: (results) => {
+          expect(results.length).toBe(0)
+          done()
+        },
+      })
+    })
+
+    it('should merge LLM results when available', (done) => {
+      // 设置 LLM 服务可用
+      llmService.setConfig({
+        ...DEFAULT_LLM_CONFIG,
+        enabled: true,
+        apiKey: 'test-key',
+      })
+
+      // Mock LLM 调用
+      spyOn(llmService, 'complete').and.returnValue(
+        Promise.resolve([{
+          command: 'git log --oneline',
+          description: 'Show compact history',
+          matchType: 'completion' as const,
+          confidence: 0.9,
+        }])
+      )
+
+      const entries = [makeEntry('git status')]
+      const results: MatchResult[][] = []
+
+      service.executeWithLlm('git', entries, 'prefix-fuzzy', llmContext).subscribe({
+        next: (result) => {
+          results.push(result)
+        },
+        complete: () => {
+          // 第一次是历史记录结果，第二次包含 LLM 结果
+          expect(results.length).toBe(2)
+          expect(results[0].length).toBe(1)
+          expect(results[1].length).toBe(2)
+          done()
+        },
+      })
     })
   })
 })

@@ -46,7 +46,8 @@ src/
 │   ├── matching_service.ts           # 前缀 + 模糊双层匹配算法
 │   ├── scoring_service.ts            # 热度排序（指数衰减 + log2 频率）
 │   ├── history_service.ts            # Shell 历史解析、Tabby 记录、合并去重、持久化
-│   └── shell_detector_service.ts     # 从环境变量/进程名检测 Shell 类型
+│   ├── shell_detector_service.ts     # 从环境变量/进程名检测 Shell 类型
+│   └── llm_service.ts                # LLM 增强匹配服务
 ├── decorators/
 │   └── terminal_decorator.ts         # 核心入口，监听输入 → 匹配 → DOM 渲染下拉列表
 ├── components/
@@ -72,7 +73,7 @@ tests/
 
 ```
 用户输入字符 → TerminalDecorator.attach() 监听 tab.input$
-    → 逐字符累积 currentInput
+    → 逐字符累积 currentInput（过滤终端转义序列）
     → RxJS: debounceTime(300ms) → filter(len >= 2)
     → MatchingService.execute() 前缀+模糊
     → ScoringService.sortWithLimit() 热度排序
@@ -80,9 +81,13 @@ tests/
     → 用户选择 → session.write() 注入命令
 ```
 
+**转义序列处理**：终端方向键发送转义序列（如 `\x1b[D` 表示左方向键），`onInput` 使用状态机过滤这些序列，防止 `[D` 等字符被添加到输入缓冲区。
+
+**ESC 键优先级**：ESC 键只要下拉列表显示就能关闭，不依赖匹配结果是否为空。
+
 ## Code Style
 
-**无分号、单引号、2 空格缩进**。从现有代码推导的风格规范：
+**无分号、单引号、2 空格缩进**。
 
 ```typescript
 // 文件顶部：模块级 JSDoc 描述

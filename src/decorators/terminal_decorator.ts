@@ -8,7 +8,8 @@ import { MatchingService, MatchResult } from '../services/matching_service'
 import { ScoringService } from '../services/scoring_service'
 import { ShellDetectorService } from '../services/shell_detector_service'
 import { HistoryService } from '../services/history_service'
-import { CommandTipsConfig, DEFAULT_CONFIG } from '../models'
+import { LlmService } from '../services/llm_service'
+import { CommandTipsConfig, DEFAULT_CONFIG, LlmContext } from '../models'
 
 /** 终端装饰器，负责监听终端输入、触发动态匹配、渲染下拉建议列表 */
 @Injectable()
@@ -35,6 +36,10 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
   /** 增量匹配缓存：上次匹配的输入和结果。 */
   private lastMatchInput = ''
   private lastMatchResults: MatchResult[] = []
+  /** LLM 订阅和状态。 */
+  private llmSubscription: Subscription | null = null
+  private llmLoading = false
+  private llmLoaded = false
 
   constructor (
     private readonly configService: ConfigService,
@@ -42,13 +47,16 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
     private readonly scoringService: ScoringService,
     private readonly shellDetector: ShellDetectorService,
     private readonly historyService: HistoryService,
+    private readonly llmService: LlmService,
     private readonly log: LogService,
   ) {
     super()
     this.logger = log.create('command-tips')
     this.config = this.configService.store.commandTips || DEFAULT_CONFIG
+    this.llmService.setConfig(this.config.llm)
     this.configService.changed$.subscribe(() => {
       this.config = this.configService.store.commandTips || DEFAULT_CONFIG
+      this.llmService.setConfig(this.config.llm)
       this.scoringService.invalidateCache()
     })
     this.logger.info('Decorator constructed')
@@ -134,7 +142,18 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
   }
 
   private onKeyDown = (event: KeyboardEvent): void => {
-    if (!this.dropdownVisible || this.currentSuggestions.length === 0) return
+    if (!this.dropdownVisible) return
+
+    // ESC 键：只要下拉列表显示就应响应
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      event.stopPropagation()
+      this.hideDropdown()
+      return
+    }
+
+    // 方向键和右方向键：需要有匹配结果才有意义
+    if (this.currentSuggestions.length === 0) return
 
     switch (event.key) {
       case 'ArrowUp':
@@ -151,11 +170,6 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
         event.preventDefault()
         event.stopPropagation()
         this.confirmSelection()
-        break
-      case 'Escape':
-        event.preventDefault()
-        event.stopPropagation()
-        this.hideDropdown()
         break
     }
   }
@@ -197,6 +211,7 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
       `
 
       const badge = document.createElement('span')
+      const badgeConfig = this.getBadgeConfig(item.matchType)
       badge.style.cssText = `
         display: inline-flex;
         align-items: center;
@@ -207,11 +222,19 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
         font-size: 10px;
         font-weight: bold;
         flex-shrink: 0;
-        background: ${item.matchType === 'prefix' ? 'rgba(76,175,80,0.3)' : 'rgba(255,193,7,0.3)'};
-        color: ${item.matchType === 'prefix' ? '#4caf50' : '#ffc107'};
+        background: ${badgeConfig.background};
+        color: ${badgeConfig.color};
       `
-      badge.textContent = item.matchType === 'prefix' ? 'P' : 'F'
+      badge.textContent = badgeConfig.text
       el.appendChild(badge)
+
+      // 如果是 LLM 结果，显示描述
+      if (item.description && (item.matchType === 'llm-completion' || item.matchType === 'llm-suggestion')) {
+        const desc = document.createElement('span')
+        desc.style.cssText = 'font-size: 10px; color: rgba(255,255,255,0.4); flex-shrink: 0;'
+        desc.textContent = item.description
+        el.appendChild(desc)
+      }
 
       const cmd = document.createElement('span')
       cmd.style.cssText = 'flex: 1; overflow: hidden; text-overflow: ellipsis;'
@@ -324,7 +347,24 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
 
     const str = data.toString()
 
+    // 转义序列状态机：遇到 \x1b 时跳过整个序列
+    let inEscapeSequence = false
+
     for (const char of str) {
+      if (char === '\x1b') {
+        // ESC 字符，开始转义序列
+        inEscapeSequence = true
+        continue
+      }
+
+      if (inEscapeSequence) {
+        // 转义序列以字母结束（CSI 序列格式：ESC [ <参数> <字母>）
+        if (char >= 'A' && char <= 'Z' || char >= 'a' && char <= 'z') {
+          inEscapeSequence = false
+        }
+        continue
+      }
+
       if (char === '\r' || char === '\n') {
         this.syncInputFromOutput(tab)
         if (this.currentInput.trim()) {
@@ -385,7 +425,7 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
     }, this.config.debounceMs)
   }
 
-  /** 执行匹配流程：获取历史、匹配、排序后显示下拉列表。支持增量匹配缓存。 */
+  /** 执行匹配流程：获取历史、匹配、排序后显示下拉列表。支持增量匹配缓存和 LLM 增强。 */
   private executeMatch (): void {
     if (!this.config.enabled) return
     if (this.currentInput.length < this.config.minChars) {
@@ -395,9 +435,24 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
 
     this.createDropdown()
 
-    let matchResults: MatchResult[]
+    // 取消之前的 LLM 订阅
+    if (this.llmSubscription) {
+      this.llmSubscription.unsubscribe()
+      this.llmSubscription = null
+    }
+    this.llmLoading = false
+    this.llmLoaded = false
+
+    // 构建 LLM 上下文
+    const llmContext: LlmContext = {
+      currentDirectory: this.getCurrentDirectory(),
+      recentCommands: this.getRecentCommands(),
+      shellType: this.currentShellType,
+      currentUser: this.getCurrentUser(),
+    }
 
     // 增量匹配：当新输入是旧输入的前缀扩展时，复用旧结果
+    let matchResults: MatchResult[]
     if (this.lastMatchResults.length > 0 &&
         this.currentInput.startsWith(this.lastMatchInput) &&
         this.lastMatchInput.length >= this.config.minChars) {
@@ -415,21 +470,91 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
     this.lastMatchInput = this.currentInput
     this.lastMatchResults = matchResults
 
-    if (matchResults.length === 0) {
-      this.hideDropdown()
-      return
+    // 如果 LLM 启用，使用 executeWithLlm 获取异步结果
+    if (this.config.llm.enabled && this.llmService.isAvailable()) {
+      this.llmLoading = true
+      this.updateLlmStatusIndicator()
+
+      const allEntries = this.historyService.getTabbyEntries(this.currentProfileId)
+      this.llmSubscription = this.matchingService.executeWithLlm(
+        this.currentInput,
+        allEntries,
+        this.config.matching,
+        llmContext,
+      ).subscribe({
+        next: (results) => {
+          this.currentSuggestions = this.scoringService.sortWithLimit(
+            results,
+            this.config.scoring,
+            this.config.maxResults,
+          )
+          this.selectedIndex = 0
+          this.listDirty = true
+          this.showDropdown()
+        },
+        error: (err) => {
+          this.logger.warn('LLM matching error:', err)
+          this.llmLoading = false
+          this.llmLoaded = true
+          this.updateLlmStatusIndicator()
+        },
+        complete: () => {
+          this.llmLoading = false
+          this.llmLoaded = true
+          this.updateLlmStatusIndicator()
+        },
+      })
+    } else {
+      // LLM 未启用，直接显示历史记录结果
+      if (matchResults.length === 0) {
+        this.hideDropdown()
+        return
+      }
+
+      const sortedResults = this.scoringService.sortWithLimit(
+        matchResults,
+        this.config.scoring,
+        this.config.maxResults,
+      )
+
+      this.currentSuggestions = sortedResults
+      this.selectedIndex = 0
+      this.listDirty = true
+      this.showDropdown()
     }
+  }
 
-    const sortedResults = this.scoringService.sortWithLimit(
-      matchResults,
-      this.config.scoring,
-      this.config.maxResults,
-    )
+  /** 获取当前工作目录。 */
+  private getCurrentDirectory (): string {
+    try {
+      const session = this.activeTab?.session as any
+      if (session?.cwd) return session.cwd
+      if (session?.environment?.PWD) return session.environment.PWD
+    } catch (err) {
+      // 静默忽略
+    }
+    return '~'
+  }
 
-    this.currentSuggestions = sortedResults
-    this.selectedIndex = 0
-    this.listDirty = true
-    this.showDropdown()
+  /** 获取最近的命令历史。 */
+  private getRecentCommands (): string[] {
+    const entries = this.historyService.getTabbyEntries(this.currentProfileId)
+    return entries
+      .sort((a, b) => b.timestamp - a.timestamp)
+      .slice(0, 10)
+      .map(e => e.command)
+  }
+
+  /** 获取当前用户名。 */
+  private getCurrentUser (): string {
+    try {
+      const session = this.activeTab?.session as any
+      if (session?.environment?.USER) return session.environment.USER
+      if (session?.environment?.USERNAME) return session.environment.USERNAME
+    } catch (err) {
+      // 静默忽略
+    }
+    return 'user'
   }
 
   private showDropdown (): void {
@@ -454,6 +579,14 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
     this.currentSuggestions = []
     this.lastMatchInput = ''
     this.lastMatchResults = []
+
+    // 清理 LLM 订阅
+    if (this.llmSubscription) {
+      this.llmSubscription.unsubscribe()
+      this.llmSubscription = null
+    }
+    this.llmLoading = false
+    this.llmLoaded = false
   }
 
   /** 将选中的命令注入终端：批量删除当前输入，再写入新命令 */
@@ -481,6 +614,12 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
     }
     this.subscriptions = []
 
+    // 清理 LLM 订阅
+    if (this.llmSubscription) {
+      this.llmSubscription.unsubscribe()
+      this.llmSubscription = null
+    }
+
     if (this.activeTab === tab) {
       this.activeTab = null
       this.hideDropdown()
@@ -496,5 +635,43 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
     }
     document.removeEventListener('keydown', this.onKeyDown, true)
     this.historyService.dispose()
+  }
+
+  /** 根据匹配类型返回标签配置。 */
+  private getBadgeConfig (matchType: string): { text: string; background: string; color: string } {
+    switch (matchType) {
+      case 'prefix':
+        return { text: 'P', background: 'rgba(76,175,80,0.3)', color: '#4caf50' }
+      case 'fuzzy':
+        return { text: 'F', background: 'rgba(255,193,7,0.3)', color: '#ffc107' }
+      case 'llm-completion':
+        return { text: 'C', background: 'rgba(33,150,243,0.3)', color: '#2196f3' }
+      case 'llm-suggestion':
+        return { text: 'S', background: 'rgba(156,39,176,0.3)', color: '#9c27b0' }
+      default:
+        return { text: '?', background: 'rgba(158,158,158,0.3)', color: '#9e9e9e' }
+    }
+  }
+
+  /** 更新 LLM 状态指示器。 */
+  private updateLlmStatusIndicator (): void {
+    if (!this.dropdownEl) return
+    let statusEl = this.dropdownEl.querySelector('.ct-llm-status') as HTMLElement
+    if (!statusEl) {
+      statusEl = document.createElement('div')
+      statusEl.className = 'ct-llm-status'
+      statusEl.style.cssText = 'padding: 3px 10px; font-size: 10px; color: rgba(255,255,255,0.4); border-top: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.02);'
+      this.dropdownEl.appendChild(statusEl)
+    }
+
+    if (this.llmLoading) {
+      statusEl.textContent = '⏳ AI 加载中...'
+      statusEl.style.display = 'block'
+    } else if (this.llmLoaded) {
+      statusEl.textContent = '✓ AI 已加载'
+      statusEl.style.display = 'block'
+    } else {
+      statusEl.style.display = 'none'
+    }
   }
 }

@@ -1,9 +1,9 @@
-h3 命令历史提示
+h3 命令提示
 
 .form-group
   .form-check
     input.form-check-input(type='checkbox', [(ngModel)]='config.enabled', (change)='save()')
-    label.form-check-label 启用命令历史提示
+    label.form-check-label 启用历史提示
 
 .form-group
   label 触发设置
@@ -48,6 +48,51 @@ h3 命令历史提示
   .form-check
     input.form-check-input(type='checkbox', [(ngModel)]='config.tabCompletesFirst', (change)='save()')
     label.form-check-label Tab 键补全第一项
+
+hr
+
+h4 LLM 提示配置
+
+.form-group
+  .form-check
+    input.form-check-input(type='checkbox', [(ngModel)]='config.llm.enabled', (change)='save()')
+    label.form-check-label 启用 LLM 提示
+
+.form-group
+  label LLM 提供商
+  select.form-control([(ngModel)]='config.llm.provider', (change)='save()')
+    option(value='openai') OpenAI
+    option(value='anthropic') Anthropic
+    option(value='local') 本地模型
+
+.form-group
+  label API 端点
+  input.form-control(type='text', [(ngModel)]='config.llm.endpoint', (change)='save()', placeholder='https://api.openai.com/v1/chat/completions')
+
+.form-group
+  label API 密钥
+  input.form-control(type='password', [(ngModel)]='config.llm.apiKey', (change)='save()', placeholder='sk-...')
+
+.form-group
+  label 模型名称
+  input.form-control(type='text', [(ngModel)]='config.llm.model', (change)='save()', placeholder='gpt-3.5-turbo')
+
+.form-group
+  label 最大返回结果数
+  input.form-control(type='number', [(ngModel)]='config.llm.maxResults', (change)='save()', min='1', max='20')
+
+.form-group
+  label 请求超时时间 (ms)
+  input.form-control(type='number', [(ngModel)]='config.llm.timeoutMs', (change)='save()', min='500', max='30000')
+
+.form-group
+  label 提示模式
+  .form-check
+    input.form-check-input(type='checkbox', [(ngModel)]='config.llm.modes', (change)='save()', value='completion')
+    label.form-check-label 命令补全
+  .form-check
+    input.form-check-input(type='checkbox', [(ngModel)]='config.llm.modes', (change)='save()', value='suggestion')
+    label.form-check-label 命令建议
 
 hr
 

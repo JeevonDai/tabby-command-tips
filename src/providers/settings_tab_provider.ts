@@ -7,7 +7,7 @@ import { SettingsTabComponent } from '../settings/settings_tab_component'
 export class CommandTipsSettingsTabProvider extends SettingsTabProvider {
   id = 'command-tips'
   icon = 'fas fa-history'
-  title = '命令历史提示'
+  title = '命令提示'
   weight = 0
 
   getComponentType (): any {

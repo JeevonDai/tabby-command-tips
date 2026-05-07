@@ -148,6 +148,7 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
     if (event.key === 'Escape') {
       event.preventDefault()
       event.stopPropagation()
+      this.currentInput = ''
       this.hideDropdown()
       return
     }

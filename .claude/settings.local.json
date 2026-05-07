@@ -19,7 +19,20 @@
       "WebFetch(domain:google.github.io)",
       "Bash(git mv *)",
       "Bash(npm test *)",
-      "Bash(npx jasmine *)"
+      "Bash(npx jasmine *)",
+      "Bash(git remote *)",
+      "Bash(git push *)",
+      "Bash(git fetch *)",
+      "Bash(git merge *)",
+      "Bash(git branch *)",
+      "Bash(npx tsc *)",
+      "Bash(bash scripts/deploy.sh)",
+      "Bash(node scripts/deploy.js)",
+      "Bash(npm ls *)",
+      "Bash(npm whoami *)",
+      "Bash(npm view *)",
+      "Bash(npm publish *)",
+      "Bash(npm version *)"
     ]
   }
 }

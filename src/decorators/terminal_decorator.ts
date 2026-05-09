@@ -436,7 +436,7 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
     }
   }
 
-  // 从终端输出中同步实际的输入内容（处理 Tab 补全等场景）
+  // 从终端输出中同步实际的输入内容（处理 Tab 补全、Ctrl+C 后换行等场景）
   private syncInputFromOutput (tab: BaseTerminalTabComponent): void {
     try {
       const frontend = (tab as any).frontend
@@ -449,14 +449,21 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
       if (!cursorLine) return
 
       const lineText = cursorLine.translateToString(true)
-      if (lineText && lineText.length > 0) {
-        const promptMatch = lineText.match(/[$%#>]\s*(.*)$/)
-        if (promptMatch && promptMatch[1]) {
-          const actualCommand = promptMatch[1].trim()
-          if (actualCommand.length > 0) {
-            this.currentInput = actualCommand
-          }
-        }
+      if (!lineText || lineText.length === 0) {
+        // 当前行为空，清空输入（比如 Ctrl+C 后的新行）
+        this.currentInput = ''
+        return
+      }
+
+      // 尝试匹配提示符后的内容
+      const promptMatch = lineText.match(/[$%#>]\s*(.*)$/)
+      if (promptMatch && promptMatch[1]) {
+        const actualCommand = promptMatch[1].trim()
+        // 同步实际命令，无论是否为空
+        this.currentInput = actualCommand
+      } else {
+        // 没有匹配到提示符，可能是纯输出行，清空输入
+        this.currentInput = ''
       }
     } catch (err) {
       // 静默忽略，回退到 currentInput
@@ -468,6 +475,10 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
       clearTimeout(this.matchDebounceTimer)
     }
     this.matchDebounceTimer = setTimeout(() => {
+      // 在触发匹配前先同步终端实际内容
+      if (this.activeTab) {
+        this.syncInputFromOutput(this.activeTab)
+      }
       this.executeMatch()
     }, this.config.debounceMs)
   }
@@ -475,6 +486,12 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
   /** 执行匹配流程：获取历史、匹配、排序后显示下拉列表。支持增量匹配缓存和 LLM 增强。 */
   private executeMatch (): void {
     if (!this.config.enabled) return
+
+    // 在匹配前先同步终端实际内容，处理 Tab 补全等场景
+    if (this.activeTab) {
+      this.syncInputFromOutput(this.activeTab)
+    }
+
     if (this.currentInput.length < this.config.minChars) {
       this.hideDropdown()
       return

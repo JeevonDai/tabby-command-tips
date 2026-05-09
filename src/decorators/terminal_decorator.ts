@@ -400,20 +400,39 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
         }
         this.currentInput = ''
         this.hideDropdown()
-      } else if (char === '\x7f') {
+      } else if (char === '\x7f' || char === '\x08') {
+        // 退格键：DEL (\x7f) 或 BS (\x08)
         this.currentInput = this.currentInput.slice(0, -1)
-        if (this.currentInput.length < this.config.minChars) {
-          this.hideDropdown()
-        } else {
-          this.triggerMatch()
-        }
-      } else if (char === '\x03') {
+        this.handleInputChanged()
+      } else if (char === '\x17') {
+        // Ctrl+W：删除前一个单词
+        const trimmed = this.currentInput.trimEnd()
+        const lastSpace = trimmed.lastIndexOf(' ')
+        this.currentInput = lastSpace >= 0 ? trimmed.substring(0, lastSpace + 1) : ''
+        this.handleInputChanged()
+      } else if (char === '\x15') {
+        // Ctrl+U：删除整行
         this.currentInput = ''
         this.hideDropdown()
+      } else if (char === '\x03') {
+        // Ctrl+C：取消当前输入
+        this.currentInput = ''
+        this.hideDropdown()
+      } else if (char === '\x01' || char === '\x05') {
+        // Ctrl+A / Ctrl+E：光标移动，不修改输入，跳过
       } else if (char >= ' ') {
         this.currentInput += char
         this.triggerMatch()
       }
+    }
+  }
+
+  /** 处理输入内容变化：检查是否需要隐藏下拉列表或触发匹配 */
+  private handleInputChanged (): void {
+    if (this.currentInput.length < this.config.minChars) {
+      this.hideDropdown()
+    } else {
+      this.triggerMatch()
     }
   }
 

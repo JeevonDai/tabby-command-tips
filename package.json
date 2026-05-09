@@ -1,6 +1,6 @@
 {
   "name": "tabby-command-tips",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Tabby 终端命令提示插件，根据输入实时匹配命令并以下拉列表展示",
   "main": "dist/index.js",
   "typings": "dist/index.d.ts",

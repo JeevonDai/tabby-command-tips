@@ -335,10 +335,37 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
     }
   }
 
+  /** 检查终端是否处于全屏程序模式（vim/nano/less 等使用 alternate screen buffer） */
+  private isInFullscreenMode (tab: BaseTerminalTabComponent): boolean {
+    try {
+      const frontend = (tab as any).frontend
+      if (!frontend) return false
+
+      const buffer = frontend.xterm?.buffer?.active
+      if (!buffer) return false
+
+      // xterm.js 中，alternate screen buffer 的类型为 'alternate'
+      // vim、nano、less、htop 等全屏程序会切换到这个缓冲区
+      return buffer.type === 'alternate'
+    } catch (err) {
+      return false
+    }
+  }
+
   /** 逐字符解析终端输入，维护 currentInput 并触发匹配或记录命令 */
   private onInput (tab: BaseTerminalTabComponent, data: Buffer): void {
     // 只处理当前激活 tab 的输入
     if (tab !== this.activeTab) return
+
+    // 如果当前在全屏程序（vim/nano/less 等）中，不处理输入
+    if (this.isInFullscreenMode(tab)) {
+      // 清空输入状态并隐藏下拉列表
+      if (this.currentInput.length > 0) {
+        this.currentInput = ''
+        this.hideDropdown()
+      }
+      return
+    }
 
     // 恢复该 tab 的上下文（可能被其他 tab 的 sessionChanged 覆盖）
     const savedProfile = this.tabProfiles.get(tab)

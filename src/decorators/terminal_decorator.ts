@@ -420,6 +420,14 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
         this.hideDropdown()
       } else if (char === '\x01' || char === '\x05') {
         // Ctrl+A / Ctrl+E：光标移动，不修改输入，跳过
+      } else if (char === '\x09') {
+        // Tab 补全：shell 会在终端回显补全内容，延迟后从终端缓冲区同步
+        setTimeout(() => {
+          if (this.activeTab === tab) {
+            this.syncInputFromOutput(tab)
+            this.triggerMatch()
+          }
+        }, 100)
       } else if (char >= ' ') {
         this.currentInput += char
         this.triggerMatch()
@@ -449,21 +457,17 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
       if (!cursorLine) return
 
       const lineText = cursorLine.translateToString(true)
-      if (!lineText || lineText.length === 0) {
-        // 当前行为空，清空输入（比如 Ctrl+C 后的新行）
-        this.currentInput = ''
-        return
-      }
+      if (!lineText || lineText.length === 0) return
 
       // 尝试匹配提示符后的内容
       const promptMatch = lineText.match(/[$%#>]\s*(.*)$/)
       if (promptMatch && promptMatch[1]) {
         const actualCommand = promptMatch[1].trim()
-        // 同步实际命令，无论是否为空
-        this.currentInput = actualCommand
-      } else {
-        // 没有匹配到提示符，可能是纯输出行，清空输入
-        this.currentInput = ''
+        // 仅当成功提取到非空内容时才更新 currentInput，
+        // 否则保留逐字符累积的结果，避免因终端缓冲区未及时更新而误清空
+        if (actualCommand) {
+          this.currentInput = actualCommand
+        }
       }
     } catch (err) {
       // 静默忽略，回退到 currentInput
@@ -475,10 +479,6 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
       clearTimeout(this.matchDebounceTimer)
     }
     this.matchDebounceTimer = setTimeout(() => {
-      // 在触发匹配前先同步终端实际内容
-      if (this.activeTab) {
-        this.syncInputFromOutput(this.activeTab)
-      }
       this.executeMatch()
     }, this.config.debounceMs)
   }
@@ -486,11 +486,6 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
   /** 执行匹配流程：获取历史、匹配、排序后显示下拉列表。支持增量匹配缓存和 LLM 增强。 */
   private executeMatch (): void {
     if (!this.config.enabled) return
-
-    // 在匹配前先同步终端实际内容，处理 Tab 补全等场景
-    if (this.activeTab) {
-      this.syncInputFromOutput(this.activeTab)
-    }
 
     if (this.currentInput.length < this.config.minChars) {
       this.hideDropdown()

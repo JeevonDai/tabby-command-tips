@@ -31,6 +31,8 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
   private tabProfiles = new Map<BaseTerminalTabComponent, string>()
   /** 记录每个 tab 对应的 shellType。 */
   private tabShellTypes = new Map<BaseTerminalTabComponent, string>()
+  /** 串口退格节流定时器（仅串口全量替换时使用）。 */
+  private serialBackspaceTimer: ReturnType<typeof setTimeout> | null = null
   /** 标记列表 DOM 是否需要完整重建（结果集变化时置 true）。 */
   private listDirty = true
   /** 增量匹配缓存：上次匹配的输入和结果。 */
@@ -633,6 +635,7 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
 
   private hideDropdown (): void {
     if (!this.dropdownEl) return
+    this.clearSerialBackspaceTimer()
     this.dropdownEl.style.display = 'none'
     this.dropdownVisible = false
     this.currentSuggestions = []
@@ -664,14 +667,67 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
     const text = this.getCommandInjectionText(this.currentInput, command)
     const isPrefixCompletion = text.length < command.length
 
+    const finish = (): void => {
+      if (text.length > 0) {
+        session.write(Buffer.from(text))
+      }
+      this.currentInput = command
+      this.hideDropdown()
+    }
+
     if (!isPrefixCompletion && this.currentInput.length > 0) {
-      session.write(Buffer.from('\x7f'.repeat(this.currentInput.length)))
+      const deleteCount = this.currentInput.length
+      if (this.isSerialTab(this.activeTab)) {
+        const intervalMs = this.getSerialBackspaceIntervalMs(this.activeTab!)
+        this.writeBackspacesSerial(session, deleteCount, intervalMs, finish)
+        return
+      }
+      session.write(Buffer.from('\x7f'.repeat(deleteCount)))
     }
-    if (text.length > 0) {
-      session.write(Buffer.from(text))
+    finish()
+  }
+
+  /** 判断当前 tab 是否为串口连接。 */
+  private isSerialTab (tab: BaseTerminalTabComponent | null): boolean {
+    if (!tab) return false
+    return (tab as any).profile?.type === 'serial'
+  }
+
+  /** 根据波特率估算串口退格间隔，留出远端处理余量。 */
+  private getSerialBackspaceIntervalMs (tab: BaseTerminalTabComponent): number {
+    const baudrate = (tab as any).profile?.options?.baudrate || 115200
+    return Math.max(5, Math.min(30, Math.round(600000 / baudrate)))
+  }
+
+  /** 串口场景逐字发送退格，避免批量删除导致远端处理不过来。 */
+  private writeBackspacesSerial (
+    session: any,
+    count: number,
+    intervalMs: number,
+    onDone: () => void,
+  ): void {
+    this.clearSerialBackspaceTimer()
+    let remaining = count
+
+    const sendNext = (): void => {
+      if (remaining <= 0) {
+        this.serialBackspaceTimer = null
+        onDone()
+        return
+      }
+      session.write(Buffer.from('\x7f'))
+      remaining--
+      this.serialBackspaceTimer = setTimeout(sendNext, intervalMs)
     }
-    this.currentInput = command
-    this.hideDropdown()
+
+    sendNext()
+  }
+
+  private clearSerialBackspaceTimer (): void {
+    if (this.serialBackspaceTimer !== null) {
+      clearTimeout(this.serialBackspaceTimer)
+      this.serialBackspaceTimer = null
+    }
   }
 
   /** 解除装饰器绑定，清理所有订阅、定时器和 DOM 元素 */
@@ -702,6 +758,7 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
     if (this.matchDebounceTimer) {
       clearTimeout(this.matchDebounceTimer)
     }
+    this.clearSerialBackspaceTimer()
     if (this.dropdownEl) {
       this.dropdownEl.remove()
       this.dropdownEl = null

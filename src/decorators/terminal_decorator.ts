@@ -648,14 +648,28 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
     this.llmLoaded = false
   }
 
-  /** 将选中的命令注入终端：批量删除当前输入，再写入新命令 */
+  /** 计算补全时应写入终端的文本：前缀匹配只追加剩余部分，避免串口退格过慢导致乱序。 */
+  private getCommandInjectionText (currentInput: string, command: string): string {
+    if (!currentInput) return command
+    if (command.toLowerCase().startsWith(currentInput.toLowerCase())) {
+      return command.slice(currentInput.length)
+    }
+    // 非前缀匹配（模糊/LLM 建议）无法增量补全，仍全量替换
+    return command
+  }
+
+  /** 将选中的命令注入终端：前缀匹配时仅追加后缀，其余场景删除后全量写入。 */
   private injectCommand (session: any, command: string): void {
     if (!session) return
-    // 批量发送退格符，一次 write 调用
-    if (this.currentInput.length > 0) {
+    const text = this.getCommandInjectionText(this.currentInput, command)
+    const isPrefixCompletion = text.length < command.length
+
+    if (!isPrefixCompletion && this.currentInput.length > 0) {
       session.write(Buffer.from('\x7f'.repeat(this.currentInput.length)))
     }
-    session.write(Buffer.from(command))
+    if (text.length > 0) {
+      session.write(Buffer.from(text))
+    }
     this.currentInput = command
     this.hideDropdown()
   }

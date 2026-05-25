@@ -131,7 +131,7 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
 
     const footer = document.createElement('div')
     footer.style.cssText = 'display: flex; gap: 12px; padding: 4px 10px; border-top: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.03); font-size: 11px; color: rgba(255,255,255,0.4);'
-    footer.innerHTML = '<span>↑↓ 选择</span><span>→ 补全</span><span>Enter 确认</span><span>Esc 取消</span>'
+    footer.innerHTML = '<span>↑↓ 选择</span><span>Enter 补全</span><span>Esc 取消</span>'
     this.dropdownEl.appendChild(footer)
 
     document.body.appendChild(this.dropdownEl)
@@ -153,7 +153,7 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
       return
     }
 
-    // 方向键和右方向键：需要有匹配结果才有意义
+    // 方向键和 Enter：需要有匹配结果才有意义
     if (this.currentSuggestions.length === 0) return
 
     switch (event.key) {
@@ -167,7 +167,7 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
         event.stopPropagation()
         this.moveSelection(1)
         break
-      case 'ArrowRight':
+      case 'Enter':
         event.preventDefault()
         event.stopPropagation()
         this.confirmSelection()

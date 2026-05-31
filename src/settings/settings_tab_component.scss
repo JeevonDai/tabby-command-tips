@@ -24,3 +24,30 @@ label {
 .btn-danger {
   margin-top: 8px;
 }
+
+.command-table {
+  margin-bottom: 8px;
+}
+
+.drag-col {
+  width: 56px;
+}
+
+.count-col {
+  width: 100px;
+}
+
+.action-col {
+  width: 84px;
+}
+
+.drag-handle {
+  cursor: move;
+  text-align: center;
+  user-select: none;
+  color: #6c757d;
+}
+
+tr.dragging {
+  opacity: 0.55;
+}

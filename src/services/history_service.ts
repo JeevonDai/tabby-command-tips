@@ -18,6 +18,8 @@ export class HistoryService {
   private readonly tabbyHistory: Map<string, HistoryEntry[]> = new Map()
   /** 命令→条目的二级索引，用于 O(1) 查找。 */
   private readonly commandIndex: Map<string, Map<string, HistoryEntry>> = new Map()
+  /** 当前激活的 profileId，供设置页读取。 */
+  private currentProfileId = 'default'
   private saveTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor (
@@ -290,6 +292,16 @@ export class HistoryService {
 
   public getAllProfileIds (): string[] {
     return Array.from(this.tabbyHistory.keys())
+  }
+
+  /** 更新当前激活的 profileId。 */
+  public setCurrentProfileId (profileId: string): void {
+    this.currentProfileId = profileId || 'default'
+  }
+
+  /** 获取当前激活的 profileId。 */
+  public getCurrentProfileId (): string {
+    return this.currentProfileId
   }
 
   /** 在插件卸载时确保数据写入存储。 */

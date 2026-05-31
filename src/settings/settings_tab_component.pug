@@ -109,3 +109,46 @@ hr
   label 数据管理
   p 当前 profile 历史条数: {{ profileHistoryCount }}
   button.btn.btn-danger((click)='clearHistory()') 清空当前 profile 历史
+
+hr
+
+.form-group
+  .d-flex.justify-content-between.align-items-center
+    label.mb-0 当前 profile 支持命令（可编辑 + 拖动排序）
+    button.btn.btn-sm.btn-outline-primary(type='button', (click)='addProfileCommand()') 新增命令
+  p.text-muted.mt-2.mb-2 当前 profile: {{ currentProfileId }}
+  table.table.table-sm.table-striped.command-table(*ngIf='currentProfileEntries.length > 0')
+    thead
+      tr
+        th.drag-col 排序
+        th 命令
+        th.count-col 次数
+        th.action-col 操作
+    tbody
+      tr(
+        *ngFor='let entry of currentProfileEntries; let i = index',
+        draggable='true',
+        (dragstart)='onRowDragStart(i)',
+        (dragover)='onRowDragOver($event)',
+        (drop)='onRowDrop(i)',
+        (dragend)='onRowDragEnd()',
+        [class.dragging]='draggingRowIndex === i'
+      )
+        td.drag-col.drag-handle(title='拖拽排序') ≡
+        td
+          input.form-control.form-control-sm(
+            type='text',
+            [(ngModel)]='entry.command',
+            (change)='onProfileCommandEdited()',
+            placeholder='输入命令，例如 git status'
+          )
+        td.count-col
+          input.form-control.form-control-sm(
+            type='number',
+            [(ngModel)]='entry.count',
+            (change)='onProfileCommandEdited()',
+            min='1'
+          )
+        td.action-col
+          button.btn.btn-sm.btn-outline-danger(type='button', (click)='removeProfileCommand(i)') 删除
+  p.text-muted.mb-0(*ngIf='currentProfileEntries.length === 0') 当前 profile 暂无命令，点击“新增命令”开始维护。

@@ -3,7 +3,7 @@ import { Component } from '@angular/core'
 import { ConfigService } from 'tabby-core'
 
 import { HistoryService } from '../services/history_service'
-import { CommandTipsConfig, DEFAULT_CONFIG, DEFAULT_LLM_CONFIG } from '../models'
+import { CommandTipsConfig, DEFAULT_CONFIG, DEFAULT_LLM_CONFIG, HistoryEntry } from '../models'
 
 /** 插件的设置页面组件，负责配置的读取、展示与持久化 */
 @Component({
@@ -11,6 +11,7 @@ import { CommandTipsConfig, DEFAULT_CONFIG, DEFAULT_LLM_CONFIG } from '../models
   styles: [require('./settings_tab_component.scss')],
 })
 export class SettingsTabComponent {
+  public draggingRowIndex: number | null = null
   public config: CommandTipsConfig = {
     ...DEFAULT_CONFIG,
     scoring: { ...DEFAULT_CONFIG.scoring },
@@ -54,14 +55,19 @@ export class SettingsTabComponent {
     }
   }
 
-  /** 返回所有 profile 的历史命令总条数 */
+  /** 返回当前 profile 的历史命令条数 */
   get profileHistoryCount (): number {
-    // 汇总所有 profile 的历史条数
-    let total = 0
-    for (const profileId of this.historyService.getAllProfileIds()) {
-      total += this.historyService.getProfileCount(profileId)
-    }
-    return total
+    return this.historyService.getProfileCount(this.currentProfileId)
+  }
+
+  /** 当前激活的 profileId（由终端装饰器同步）。 */
+  get currentProfileId (): string {
+    return this.historyService.getCurrentProfileId()
+  }
+
+  /** 当前 profile 的命令列表（可直接编辑）。 */
+  get currentProfileEntries (): HistoryEntry[] {
+    return this.historyService.getTabbyEntries(this.currentProfileId)
   }
 
   /** 将当前配置写入存储并持久化 */
@@ -99,10 +105,99 @@ export class SettingsTabComponent {
     this.configService.save()
   }
 
-  /** 清空所有 profile 的历史命令记录 */
+  /** 清空当前 profile 的历史命令记录 */
   clearHistory (): void {
-    for (const profileId of this.historyService.getAllProfileIds()) {
-      this.historyService.clearProfile(profileId)
+    this.historyService.clearProfile(this.currentProfileId)
+  }
+
+  /** 新增一条可编辑命令。 */
+  addProfileCommand (): void {
+    const entries = [...this.currentProfileEntries]
+    entries.push({
+      command: '',
+      source: 'tabby',
+      shellType: entries[0]?.shellType || 'bash',
+      profileId: this.currentProfileId,
+      timestamp: Date.now(),
+      count: 1,
+    })
+    this.historyService.setTabbyEntries(this.currentProfileId, entries)
+  }
+
+  /** 删除指定行命令。 */
+  removeProfileCommand (index: number): void {
+    const entries = [...this.currentProfileEntries]
+    entries.splice(index, 1)
+    this.saveCurrentProfileEntries(entries)
+  }
+
+  /** 命令内容被编辑后保存。 */
+  onProfileCommandEdited (): void {
+    this.saveCurrentProfileEntries(this.currentProfileEntries)
+  }
+
+  /** 拖拽开始。 */
+  onRowDragStart (index: number): void {
+    this.draggingRowIndex = index
+  }
+
+  /** 拖拽经过目标行时允许放置。 */
+  onRowDragOver (event: DragEvent): void {
+    event.preventDefault()
+  }
+
+  /** 放置后重排并保存。 */
+  onRowDrop (targetIndex: number): void {
+    if (this.draggingRowIndex === null || this.draggingRowIndex === targetIndex) return
+    const entries = [...this.currentProfileEntries]
+    const [moved] = entries.splice(this.draggingRowIndex, 1)
+    entries.splice(targetIndex, 0, moved)
+    this.draggingRowIndex = null
+    this.saveCurrentProfileEntries(entries)
+  }
+
+  /** 拖拽结束，清理状态。 */
+  onRowDragEnd (): void {
+    this.draggingRowIndex = null
+  }
+
+  /** 清洗/去重后保存当前 profile 命令列表。 */
+  private saveCurrentProfileEntries (entries: HistoryEntry[]): void {
+    const normalized = this.normalizeEntries(entries)
+    this.historyService.setTabbyEntries(this.currentProfileId, normalized)
+  }
+
+  /** 去掉空命令，并合并重复命令。 */
+  private normalizeEntries (entries: HistoryEntry[]): HistoryEntry[] {
+    const merged = new Map<string, HistoryEntry>()
+    const result: HistoryEntry[] = []
+
+    for (const item of entries) {
+      const command = (item.command || '').trim()
+      if (!command) continue
+
+      const normalized: HistoryEntry = {
+        ...item,
+        command,
+        source: item.source || 'tabby',
+        shellType: item.shellType || 'bash',
+        profileId: this.currentProfileId,
+        timestamp: item.timestamp || Date.now(),
+        count: Math.max(1, item.count || 1),
+      }
+
+      const existing = merged.get(command)
+      if (!existing) {
+        merged.set(command, normalized)
+        result.push(normalized)
+        continue
+      }
+
+      existing.count += normalized.count
+      existing.timestamp = Math.max(existing.timestamp, normalized.timestamp)
+      if (existing.source !== 'tabby') existing.source = normalized.source
     }
+
+    return result
   }
 }

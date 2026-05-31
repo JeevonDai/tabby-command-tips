@@ -341,6 +341,7 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
     this.activeTab = tab
     this.currentShellType = shellType
     this.currentProfileId = profileId
+    this.historyService.setCurrentProfileId(profileId)
     this.logger.info(`Shell: ${shellType}, Profile: ${profileId}`)
 
     // 切换会话时隐藏旧下拉列表、重置输入状态
@@ -410,6 +411,7 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
     const savedShell = this.tabShellTypes.get(tab)
     if (savedProfile) this.currentProfileId = savedProfile
     if (savedShell) this.currentShellType = savedShell
+    this.historyService.setCurrentProfileId(this.currentProfileId)
 
     const str = data.toString()
 

@@ -67,6 +67,11 @@ export interface CommandTipsConfig {
   matching: 'prefix-fuzzy' | 'prefix-only' | 'fuzzy-only'
   showSourceTag: boolean
   tabCompletesFirst: boolean
+  /** 确认选中项的快捷键开关 */
+  acceptKeys: {
+    enter: boolean
+    arrowRight: boolean
+  }
   llm: LlmConfig
 }
 
@@ -96,5 +101,9 @@ export const DEFAULT_CONFIG: CommandTipsConfig = {
   matching: 'prefix-fuzzy',
   showSourceTag: false,
   tabCompletesFirst: true,
+  acceptKeys: {
+    enter: true,
+    arrowRight: true,
+  },
   llm: DEFAULT_LLM_CONFIG,
 }

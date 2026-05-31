@@ -11,7 +11,11 @@ import { CommandTipsConfig, DEFAULT_CONFIG, DEFAULT_LLM_CONFIG } from '../models
   styles: [require('./settings_tab_component.scss')],
 })
 export class SettingsTabComponent {
-  public config: CommandTipsConfig = { ...DEFAULT_CONFIG, scoring: { ...DEFAULT_CONFIG.scoring } }
+  public config: CommandTipsConfig = {
+    ...DEFAULT_CONFIG,
+    scoring: { ...DEFAULT_CONFIG.scoring },
+    acceptKeys: { ...DEFAULT_CONFIG.acceptKeys },
+  }
 
   constructor (
     private readonly configService: ConfigService,
@@ -32,6 +36,10 @@ export class SettingsTabComponent {
         matching: stored.matching ?? DEFAULT_CONFIG.matching,
         showSourceTag: stored.showSourceTag ?? DEFAULT_CONFIG.showSourceTag,
         tabCompletesFirst: stored.tabCompletesFirst ?? DEFAULT_CONFIG.tabCompletesFirst,
+        acceptKeys: {
+          enter: stored.acceptKeys?.enter ?? DEFAULT_CONFIG.acceptKeys.enter,
+          arrowRight: stored.acceptKeys?.arrowRight ?? DEFAULT_CONFIG.acceptKeys.arrowRight,
+        },
         llm: {
           enabled: stored.llm?.enabled ?? DEFAULT_LLM_CONFIG.enabled,
           provider: stored.llm?.provider ?? DEFAULT_LLM_CONFIG.provider,
@@ -69,6 +77,11 @@ export class SettingsTabComponent {
     store.matching = this.config.matching
     store.showSourceTag = this.config.showSourceTag
     store.tabCompletesFirst = this.config.tabCompletesFirst
+    if (!store.acceptKeys) {
+      store.acceptKeys = { ...DEFAULT_CONFIG.acceptKeys }
+    }
+    store.acceptKeys.enter = this.config.acceptKeys.enter
+    store.acceptKeys.arrowRight = this.config.acceptKeys.arrowRight
 
     // 保存 LLM 配置
     if (!store.llm) {

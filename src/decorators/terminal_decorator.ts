@@ -60,6 +60,7 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
       this.config = this.configService.store.commandTips || DEFAULT_CONFIG
       this.llmService.setConfig(this.config.llm)
       this.scoringService.invalidateCache()
+      this.updateFooterHint()
     })
     this.logger.info('Decorator constructed')
   }
@@ -132,8 +133,9 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
     this.dropdownEl.appendChild(list)
 
     const footer = document.createElement('div')
+    footer.className = 'ct-footer'
     footer.style.cssText = 'display: flex; gap: 12px; padding: 4px 10px; border-top: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.03); font-size: 11px; color: rgba(255,255,255,0.4);'
-    footer.innerHTML = '<span>↑↓ 选择</span><span>Enter 补全</span><span>Esc 取消</span>'
+    footer.innerHTML = this.buildFooterHtml()
     this.dropdownEl.appendChild(footer)
 
     document.body.appendChild(this.dropdownEl)
@@ -155,8 +157,13 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
       return
     }
 
-    // 方向键和 Enter：需要有匹配结果才有意义
+    // 方向键和确认键：需要有匹配结果才有意义
     if (this.currentSuggestions.length === 0) return
+
+    const acceptKeys = {
+      enter: this.config.acceptKeys?.enter ?? DEFAULT_CONFIG.acceptKeys.enter,
+      arrowRight: this.config.acceptKeys?.arrowRight ?? DEFAULT_CONFIG.acceptKeys.arrowRight,
+    }
 
     switch (event.key) {
       case 'ArrowUp':
@@ -170,11 +177,40 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
         this.moveSelection(1)
         break
       case 'Enter':
+        if (!acceptKeys.enter) return
+        event.preventDefault()
+        event.stopPropagation()
+        this.confirmSelection()
+        break
+      case 'ArrowRight':
+        if (!acceptKeys.arrowRight) return
         event.preventDefault()
         event.stopPropagation()
         this.confirmSelection()
         break
     }
+  }
+
+  /** 根据 acceptKeys 配置生成下拉列表底部操作提示 HTML。 */
+  private buildFooterHtml (): string {
+    const acceptKeys = {
+      enter: this.config.acceptKeys?.enter ?? DEFAULT_CONFIG.acceptKeys.enter,
+      arrowRight: this.config.acceptKeys?.arrowRight ?? DEFAULT_CONFIG.acceptKeys.arrowRight,
+    }
+    const confirmParts: string[] = []
+    if (acceptKeys.enter) confirmParts.push('Enter')
+    if (acceptKeys.arrowRight) confirmParts.push('→')
+    const confirmHint = confirmParts.length > 0
+      ? `<span>${confirmParts.join(' / ')} 补全</span>`
+      : ''
+    return `<span>↑↓ 选择</span>${confirmHint}<span>Esc 取消</span>`
+  }
+
+  /** 配置变更后刷新底部操作提示。 */
+  private updateFooterHint (): void {
+    if (!this.dropdownEl) return
+    const footer = this.dropdownEl.querySelector('.ct-footer')
+    if (footer) footer.innerHTML = this.buildFooterHtml()
   }
 
   private moveSelection (delta: number): void {

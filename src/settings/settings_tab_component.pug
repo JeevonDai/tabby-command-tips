@@ -49,6 +49,15 @@ h3 命令提示
     input.form-check-input(type='checkbox', [(ngModel)]='config.tabCompletesFirst', (change)='save()')
     label.form-check-label Tab 键补全第一项
 
+.form-group
+  label 确认选中项快捷键
+  .form-check
+    input.form-check-input(type='checkbox', [(ngModel)]='config.acceptKeys.enter', (change)='save()')
+    label.form-check-label Enter 键补全
+  .form-check
+    input.form-check-input(type='checkbox', [(ngModel)]='config.acceptKeys.arrowRight', (change)='save()')
+    label.form-check-label 右箭头键 (→) 补全
+
 hr
 
 h4 LLM 提示配置

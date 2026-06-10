@@ -81,7 +81,7 @@ export interface LlmError {
 /** LLM 配置。 */
 export interface LlmConfig {
   enabled: boolean
-  provider: 'openai' | 'anthropic' | 'local'
+  provider: 'openai' | 'deepseek' | 'anthropic' | 'local'
   endpoint: string
   apiKey: string
   model: string

@@ -94,6 +94,24 @@ export class SettingsTabComponent {
     return result
   }
 
+  /** 各 LLM 提供商的默认端点与模型预设。 */
+  private readonly providerPresets: Record<string, { endpoint: string; model: string }> = {
+    openai: { endpoint: 'https://api.openai.com/v1/chat/completions', model: 'gpt-3.5-turbo' },
+    deepseek: { endpoint: 'https://api.deepseek.com/v1/chat/completions', model: 'deepseek-chat' },
+    anthropic: { endpoint: 'https://api.anthropic.com/v1/messages', model: 'claude-3-haiku-20240307' },
+    local: { endpoint: 'http://localhost:11434/v1/chat/completions', model: 'qwen2.5-coder' },
+  }
+
+  /** 切换提供商时填充对应的默认端点与模型，再保存。 */
+  onProviderChanged (): void {
+    const preset = this.providerPresets[this.config.llm.provider]
+    if (preset) {
+      this.config.llm.endpoint = preset.endpoint
+      this.config.llm.model = preset.model
+    }
+    this.save()
+  }
+
   /** 返回选中配置组的历史命令条数 */
   get profileHistoryCount (): number {
     return this.historyService.getProfileCount(this.selectedProfileId)

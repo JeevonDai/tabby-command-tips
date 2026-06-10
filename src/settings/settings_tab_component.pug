@@ -69,8 +69,9 @@ h4 LLM 提示配置
 
 .form-group
   label LLM 提供商
-  select.form-control([(ngModel)]='config.llm.provider', (change)='save()')
+  select.form-control([(ngModel)]='config.llm.provider', (change)='onProviderChanged()')
     option(value='openai') OpenAI
+    option(value='deepseek') DeepSeek
     option(value='anthropic') Anthropic
     option(value='local') 本地模型
 

@@ -105,18 +105,57 @@ h4 LLM 提示配置
 
 hr
 
+h4 命令配置组
+
+p.text-muted.mb-2 按顺序对窗口名（标签标题，回退到 profile 名）做正则匹配，命中第一个即使用该组命令历史；都不命中时使用「默认」组。当前终端激活配置组：{{ activeProfileName }}
+
 .form-group
-  label 数据管理
-  p 当前 profile 历史条数: {{ profileHistoryCount }}
-  button.btn.btn-danger((click)='clearHistory()') 清空当前 profile 历史
+  table.table.table-sm.profile-table(*ngIf='config.profiles.length > 0')
+    thead
+      tr
+        th 名称
+        th 匹配正则（窗口名包含，如 DU|RU|BMU）
+        th.count-col 命令数
+        th.action-col 操作
+    tbody
+      tr(*ngFor='let profile of config.profiles')
+        td
+          input.form-control.form-control-sm(
+            type='text',
+            [(ngModel)]='profile.name',
+            (change)='onProfileMetaChanged()',
+            placeholder='配置组名称'
+          )
+        td
+          input.form-control.form-control-sm(
+            type='text',
+            [(ngModel)]='profile.pattern',
+            (change)='onProfileMetaChanged()',
+            [disabled]='isDefaultProfile(profile)',
+            [placeholder]='isDefaultProfile(profile) ? "默认组（兜底，无需正则）" : "例如 DU|RU|BMU"'
+          )
+        td.count-col {{ historyCountOf(profile.id) }}
+        td.action-col
+          button.btn.btn-sm.btn-outline-danger(
+            type='button',
+            [disabled]='isDefaultProfile(profile)',
+            (click)='removeProfile(profile)'
+          ) 删除
+  button.btn.btn-sm.btn-outline-primary(type='button', (click)='addProfile()') 新增配置组
 
 hr
 
 .form-group
+  label 选择要编辑命令的配置组
+  select.form-control([(ngModel)]='selectedProfileId', style='width: 240px')
+    option(*ngFor='let profile of config.profiles', [value]='profile.id') {{ profile.name }}
+  p.text-muted.mt-2.mb-2 历史条数: {{ profileHistoryCount }}
+  button.btn.btn-danger((click)='clearHistory()') 清空该配置组历史
+
+.form-group
   .d-flex.justify-content-between.align-items-center
-    label.mb-0 当前 profile 支持命令（可编辑 + 拖动排序）
+    label.mb-0 配置组命令（可编辑 + 拖动排序）
     button.btn.btn-sm.btn-outline-primary(type='button', (click)='addProfileCommand()') 新增命令
-  p.text-muted.mt-2.mb-2 当前 profile: {{ currentProfileId }}
   table.table.table-sm.table-striped.command-table(*ngIf='currentProfileEntries.length > 0')
     thead
       tr

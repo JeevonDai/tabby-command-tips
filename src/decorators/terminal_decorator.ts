@@ -9,7 +9,7 @@ import { ScoringService } from '../services/scoring_service'
 import { ShellDetectorService } from '../services/shell_detector_service'
 import { HistoryService } from '../services/history_service'
 import { LlmService } from '../services/llm_service'
-import { CommandTipsConfig, DEFAULT_CONFIG, LlmContext } from '../models'
+import { CommandTipsConfig, DEFAULT_CONFIG, LlmContext, resolveCommandProfileId } from '../models'
 
 /** 终端装饰器，负责监听终端输入、触发动态匹配、渲染下拉建议列表 */
 @Injectable()
@@ -31,6 +31,8 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
   private tabProfiles = new Map<BaseTerminalTabComponent, string>()
   /** 记录每个 tab 对应的 shellType。 */
   private tabShellTypes = new Map<BaseTerminalTabComponent, string>()
+  /** 记录每个 tab 对应的 Shell 历史文件路径，供窗口名变化后重新加载。 */
+  private tabHistoryFiles = new Map<BaseTerminalTabComponent, string | null>()
   /** 串口退格节流定时器（仅串口全量替换时使用）。 */
   private serialBackspaceTimer: ReturnType<typeof setTimeout> | null = null
   /** 标记列表 DOM 是否需要完整重建（结果集变化时置 true）。 */
@@ -61,6 +63,8 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
       this.llmService.setConfig(this.config.llm)
       this.scoringService.invalidateCache()
       this.updateFooterHint()
+      // 配置组（正则）可能已变化，重新解析当前激活 tab 的 profile
+      if (this.activeTab) this.refreshProfileForTab(this.activeTab)
     })
     this.logger.info('Decorator constructed')
   }
@@ -70,9 +74,16 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
     this.logger.info('attach() called')
     this.activeTab = tab
 
-    // 监听 tab 获得焦点事件，切换 tab 时更新 activeTab
+    // 监听 tab 获得焦点事件，切换 tab 时更新 activeTab 并恢复其 profile 上下文
     const focusedSub = tab.focused$.subscribe(() => {
       this.activeTab = tab
+      const savedProfile = this.tabProfiles.get(tab)
+      if (savedProfile) {
+        this.currentProfileId = savedProfile
+        this.historyService.setCurrentProfileId(savedProfile)
+      }
+      const savedShell = this.tabShellTypes.get(tab)
+      if (savedShell) this.currentShellType = savedShell
       this.hideDropdown()
       this.currentInput = ''
     })
@@ -84,6 +95,15 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
       this.onSessionChanged(tab, session)
     })
     this.subscriptions.push(sessionSub)
+
+    // 监听窗口名（标题）变化：Shell 可能在运行时改写标题（如包含 DU/RU/BMU）
+    const title$ = (tab as any).title$
+    if (title$ && typeof title$.subscribe === 'function') {
+      const titleSub = title$.subscribe(() => {
+        this.refreshProfileForTab(tab)
+      })
+      this.subscriptions.push(titleSub)
+    }
 
     const inputSub = tab.input$.subscribe(data => {
       this.onInput(tab, data)
@@ -332,23 +352,56 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
     const processName = session.processName || ''
     const shellInfo = this.shellDetector.detect(env, processName)
     const shellType = shellInfo.type !== 'unknown' ? shellInfo.type : 'bash'
-    const profileId = (tab as any).profile?.id || 'default'
+    const profileId = this.resolveProfileId(tab)
 
     // 记录 tab 的上下文信息
     this.tabProfiles.set(tab, profileId)
     this.tabShellTypes.set(tab, shellType)
+    this.tabHistoryFiles.set(tab, shellInfo.historyFile)
 
     this.activeTab = tab
     this.currentShellType = shellType
     this.currentProfileId = profileId
     this.historyService.setCurrentProfileId(profileId)
-    this.logger.info(`Shell: ${shellType}, Profile: ${profileId}`)
+    this.logger.info(`Shell: ${shellType}, Profile: ${profileId}, Window: ${this.getWindowName(tab)}`)
 
     // 切换会话时隐藏旧下拉列表、重置输入状态
     this.hideDropdown()
     this.currentInput = ''
 
     this.loadShellHistory(shellInfo.historyFile)
+  }
+
+  /** 读取 tab 的窗口名：标题优先，回退到 profile 名称。 */
+  private getWindowName (tab: BaseTerminalTabComponent): string {
+    const t = tab as any
+    return t.title || t.customTitle || t.profile?.name || ''
+  }
+
+  /** 根据窗口名和配置组列表解析该 tab 应使用的 profileId。 */
+  private resolveProfileId (tab: BaseTerminalTabComponent): string {
+    const profiles = this.config.profiles && this.config.profiles.length > 0
+      ? this.config.profiles
+      : DEFAULT_CONFIG.profiles
+    return resolveCommandProfileId(this.getWindowName(tab), profiles)
+  }
+
+  /** 窗口名或配置组变化后重新解析 profile，命中不同配置组则切换历史上下文并重载。 */
+  private refreshProfileForTab (tab: BaseTerminalTabComponent): void {
+    const newProfileId = this.resolveProfileId(tab)
+    if (newProfileId === this.tabProfiles.get(tab)) return
+
+    this.tabProfiles.set(tab, newProfileId)
+    this.logger.info(`Profile switched to ${newProfileId} for window: ${this.getWindowName(tab)}`)
+
+    if (tab === this.activeTab) {
+      this.currentProfileId = newProfileId
+      this.historyService.setCurrentProfileId(newProfileId)
+      this.hideDropdown()
+      this.currentInput = ''
+      // 在新 profile 下重新载入该 tab 的 Shell 历史
+      this.loadShellHistory(this.tabHistoryFiles.get(tab) ?? null)
+    }
   }
 
   /** 异步读取 Shell 历史文件并与 Tabby 历史合并，不阻塞主线程。 */
@@ -772,6 +825,7 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
   detach (tab: BaseTerminalTabComponent): void {
     this.tabProfiles.delete(tab)
     this.tabShellTypes.delete(tab)
+    this.tabHistoryFiles.delete(tab)
 
     // 只清理该 tab 相关的订阅
     // 由于 subscriptions 数组中混合了 sessionSub 和 inputSub，

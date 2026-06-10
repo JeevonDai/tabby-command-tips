@@ -6,7 +6,13 @@ import { DEFAULT_CONFIG } from '../models'
 @Injectable()
 export class CommandTipsConfigProvider extends ConfigProvider {
   defaults = {
-    commandTips: { ...DEFAULT_CONFIG },
+    commandTips: {
+      ...DEFAULT_CONFIG,
+      scoring: { ...DEFAULT_CONFIG.scoring },
+      acceptKeys: { ...DEFAULT_CONFIG.acceptKeys },
+      profiles: DEFAULT_CONFIG.profiles.map(p => ({ ...p })),
+      llm: { ...DEFAULT_CONFIG.llm },
+    },
   }
 
   constructor () {

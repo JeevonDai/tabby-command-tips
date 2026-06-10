@@ -3,7 +3,14 @@ import { Component } from '@angular/core'
 import { ConfigService } from 'tabby-core'
 
 import { HistoryService } from '../services/history_service'
-import { CommandTipsConfig, DEFAULT_CONFIG, DEFAULT_LLM_CONFIG, HistoryEntry } from '../models'
+import {
+  CommandProfile,
+  CommandTipsConfig,
+  DEFAULT_COMMAND_PROFILE,
+  DEFAULT_CONFIG,
+  DEFAULT_LLM_CONFIG,
+  HistoryEntry,
+} from '../models'
 
 /** 插件的设置页面组件，负责配置的读取、展示与持久化 */
 @Component({
@@ -12,10 +19,13 @@ import { CommandTipsConfig, DEFAULT_CONFIG, DEFAULT_LLM_CONFIG, HistoryEntry } f
 })
 export class SettingsTabComponent {
   public draggingRowIndex: number | null = null
+  /** 当前在「命令编辑」区域选中的配置组 id。 */
+  public selectedProfileId = DEFAULT_COMMAND_PROFILE.id
   public config: CommandTipsConfig = {
     ...DEFAULT_CONFIG,
     scoring: { ...DEFAULT_CONFIG.scoring },
     acceptKeys: { ...DEFAULT_CONFIG.acceptKeys },
+    profiles: [{ ...DEFAULT_COMMAND_PROFILE }],
   }
 
   constructor (
@@ -41,6 +51,7 @@ export class SettingsTabComponent {
           enter: stored.acceptKeys?.enter ?? DEFAULT_CONFIG.acceptKeys.enter,
           arrowRight: stored.acceptKeys?.arrowRight ?? DEFAULT_CONFIG.acceptKeys.arrowRight,
         },
+        profiles: this.normalizeProfiles(stored.profiles),
         llm: {
           enabled: stored.llm?.enabled ?? DEFAULT_LLM_CONFIG.enabled,
           provider: stored.llm?.provider ?? DEFAULT_LLM_CONFIG.provider,
@@ -53,21 +64,99 @@ export class SettingsTabComponent {
         },
       }
     }
+
+    // 默认选中当前激活的配置组（若仍存在），否则回退到默认组
+    const active = this.historyService.getCurrentProfileId()
+    this.selectedProfileId = this.config.profiles.some(p => p.id === active)
+      ? active
+      : DEFAULT_COMMAND_PROFILE.id
   }
 
-  /** 返回当前 profile 的历史命令条数 */
+  /** 规范化配置组列表：保证始终存在默认组且 id 唯一。 */
+  private normalizeProfiles (profiles: any): CommandProfile[] {
+    const result: CommandProfile[] = []
+    const seen = new Set<string>()
+    if (Array.isArray(profiles)) {
+      for (const p of profiles) {
+        const id = (p?.id || '').trim()
+        if (!id || seen.has(id)) continue
+        seen.add(id)
+        result.push({
+          id,
+          name: (p?.name || id).trim(),
+          pattern: typeof p?.pattern === 'string' ? p.pattern : '',
+        })
+      }
+    }
+    if (!seen.has(DEFAULT_COMMAND_PROFILE.id)) {
+      result.unshift({ ...DEFAULT_COMMAND_PROFILE })
+    }
+    return result
+  }
+
+  /** 返回选中配置组的历史命令条数 */
   get profileHistoryCount (): number {
-    return this.historyService.getProfileCount(this.currentProfileId)
+    return this.historyService.getProfileCount(this.selectedProfileId)
   }
 
-  /** 当前激活的 profileId（由终端装饰器同步）。 */
-  get currentProfileId (): string {
+  /** 当前终端激活的 profileId（由终端装饰器同步），用于提示展示。 */
+  get activeProfileId (): string {
     return this.historyService.getCurrentProfileId()
   }
 
-  /** 当前 profile 的命令列表（可直接编辑）。 */
+  /** 选中配置组的展示名称。 */
+  get activeProfileName (): string {
+    const id = this.activeProfileId
+    const profile = this.config.profiles.find(p => p.id === id)
+    return profile ? profile.name : id
+  }
+
+  /** 选中配置组的命令列表（可直接编辑）。 */
   get currentProfileEntries (): HistoryEntry[] {
-    return this.historyService.getTabbyEntries(this.currentProfileId)
+    return this.historyService.getTabbyEntries(this.selectedProfileId)
+  }
+
+  /** 返回指定配置组的历史命令条数。 */
+  historyCountOf (profileId: string): number {
+    return this.historyService.getProfileCount(profileId)
+  }
+
+  /** 判断某配置组是否为默认组（默认组不可删除、id 不可编辑）。 */
+  isDefaultProfile (profile: CommandProfile): boolean {
+    return profile.id === DEFAULT_COMMAND_PROFILE.id
+  }
+
+  /** 新增一个命令配置组。 */
+  addProfile (): void {
+    const id = this.generateProfileId()
+    this.config.profiles.push({ id, name: '新配置组', pattern: '' })
+    this.selectedProfileId = id
+    this.save()
+  }
+
+  /** 删除一个命令配置组（默认组除外），并清除其历史。 */
+  removeProfile (profile: CommandProfile): void {
+    if (this.isDefaultProfile(profile)) return
+    this.config.profiles = this.config.profiles.filter(p => p.id !== profile.id)
+    this.historyService.deleteProfile(profile.id)
+    if (this.selectedProfileId === profile.id) {
+      this.selectedProfileId = DEFAULT_COMMAND_PROFILE.id
+    }
+    this.save()
+  }
+
+  /** 配置组的名称 / 正则被编辑后保存。 */
+  onProfileMetaChanged (): void {
+    this.save()
+  }
+
+  /** 生成不重复的配置组 id。 */
+  private generateProfileId (): string {
+    let id = ''
+    do {
+      id = 'p' + Math.random().toString(36).slice(2, 8)
+    } while (this.config.profiles.some(p => p.id === id))
+    return id
   }
 
   /** 将当前配置写入存储并持久化 */
@@ -89,6 +178,13 @@ export class SettingsTabComponent {
     store.acceptKeys.enter = this.config.acceptKeys.enter
     store.acceptKeys.arrowRight = this.config.acceptKeys.arrowRight
 
+    // 保存命令配置组（深拷贝，避免存储引用同一数组）
+    store.profiles = this.config.profiles.map(p => ({
+      id: p.id,
+      name: (p.name || p.id).trim(),
+      pattern: p.pattern || '',
+    }))
+
     // 保存 LLM 配置
     if (!store.llm) {
       store.llm = { ...DEFAULT_LLM_CONFIG }
@@ -105,9 +201,9 @@ export class SettingsTabComponent {
     this.configService.save()
   }
 
-  /** 清空当前 profile 的历史命令记录 */
+  /** 清空选中配置组的历史命令记录 */
   clearHistory (): void {
-    this.historyService.clearProfile(this.currentProfileId)
+    this.historyService.clearProfile(this.selectedProfileId)
   }
 
   /** 新增一条可编辑命令。 */
@@ -117,11 +213,11 @@ export class SettingsTabComponent {
       command: '',
       source: 'tabby',
       shellType: entries[0]?.shellType || 'bash',
-      profileId: this.currentProfileId,
+      profileId: this.selectedProfileId,
       timestamp: Date.now(),
       count: 1,
     })
-    this.historyService.setTabbyEntries(this.currentProfileId, entries)
+    this.historyService.setTabbyEntries(this.selectedProfileId, entries)
   }
 
   /** 删除指定行命令。 */
@@ -161,10 +257,10 @@ export class SettingsTabComponent {
     this.draggingRowIndex = null
   }
 
-  /** 清洗/去重后保存当前 profile 命令列表。 */
+  /** 清洗/去重后保存选中配置组的命令列表。 */
   private saveCurrentProfileEntries (entries: HistoryEntry[]): void {
     const normalized = this.normalizeEntries(entries)
-    this.historyService.setTabbyEntries(this.currentProfileId, normalized)
+    this.historyService.setTabbyEntries(this.selectedProfileId, normalized)
   }
 
   /** 去掉空命令，并合并重复命令。 */
@@ -181,7 +277,7 @@ export class SettingsTabComponent {
         command,
         source: item.source || 'tabby',
         shellType: item.shellType || 'bash',
-        profileId: this.currentProfileId,
+        profileId: this.selectedProfileId,
         timestamp: item.timestamp || Date.now(),
         count: Math.max(1, item.count || 1),
       }

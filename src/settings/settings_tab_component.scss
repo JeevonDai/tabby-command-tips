@@ -29,6 +29,14 @@ label {
   margin-bottom: 8px;
 }
 
+.profile-table {
+  margin-bottom: 8px;
+
+  input.form-control-sm:disabled {
+    opacity: 0.6;
+  }
+}
+
 .drag-col {
   width: 56px;
 }

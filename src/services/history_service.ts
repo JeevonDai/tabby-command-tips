@@ -280,6 +280,13 @@ export class HistoryService {
     this.scheduleSave()
   }
 
+  /** 彻底删除指定 Profile 的历史存储桶并持久化。 */
+  public deleteProfile (profileId: string): void {
+    this.tabbyHistory.delete(profileId)
+    this.commandIndex.delete(profileId)
+    this.scheduleSave()
+  }
+
   public setTabbyEntries (profileId: string, entries: HistoryEntry[]): void {
     this.tabbyHistory.set(profileId, entries)
     this.rebuildIndex(profileId, entries)

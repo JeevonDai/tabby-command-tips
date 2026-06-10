@@ -8,6 +8,43 @@ export interface HistoryEntry {
   count: number
 }
 
+/** 命令配置组：一组独立维护的命令历史，可通过正则匹配窗口名自动启用。 */
+export interface CommandProfile {
+  /** 唯一标识，同时作为历史存储桶的键。 */
+  id: string
+  /** 展示用名称。 */
+  name: string
+  /** 匹配窗口/标签名的正则表达式（字符串形式），为空表示不参与自动匹配。 */
+  pattern: string
+}
+
+/** 默认命令配置组，作为兜底，始终存在且不可删除。 */
+export const DEFAULT_COMMAND_PROFILE: CommandProfile = {
+  id: 'default',
+  name: '默认',
+  pattern: '',
+}
+
+/**
+ * 根据窗口名按顺序匹配命令配置组，返回首个正则命中的组 id。
+ * 无 pattern 的组不参与匹配；全部未命中时回退到 'default'。
+ */
+export function resolveCommandProfileId (windowName: string, profiles: CommandProfile[]): string {
+  const name = windowName || ''
+  for (const profile of profiles || []) {
+    const pattern = (profile.pattern || '').trim()
+    if (!pattern) continue
+    try {
+      if (new RegExp(pattern, 'i').test(name)) {
+        return profile.id
+      }
+    } catch (e) {
+      // 非法正则忽略，继续尝试后续配置组
+    }
+  }
+  return DEFAULT_COMMAND_PROFILE.id
+}
+
 /** LLM 调用所需的上下文信息。 */
 export interface LlmContext {
   currentDirectory: string
@@ -72,6 +109,8 @@ export interface CommandTipsConfig {
     enter: boolean
     arrowRight: boolean
   }
+  /** 命令配置组列表：按顺序对窗口名做正则匹配，命中即使用对应组的命令历史。 */
+  profiles: CommandProfile[]
   llm: LlmConfig
 }
 
@@ -105,5 +144,6 @@ export const DEFAULT_CONFIG: CommandTipsConfig = {
     enter: true,
     arrowRight: true,
   },
+  profiles: [{ ...DEFAULT_COMMAND_PROFILE }],
   llm: DEFAULT_LLM_CONFIG,
 }

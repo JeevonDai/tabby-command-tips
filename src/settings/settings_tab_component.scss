@@ -1,7 +1,7 @@
 :host {
   display: block;
   padding: 20px;
-  max-width: 600px;
+  max-width: 960px;
 }
 
 h3 {
@@ -35,6 +35,10 @@ label {
   input.form-control-sm:disabled {
     opacity: 0.6;
   }
+}
+
+.prompt-col {
+  min-width: 220px;
 }
 
 .drag-col {

@@ -16,13 +16,35 @@ export interface CommandProfile {
   name: string
   /** 匹配窗口/标签名的正则表达式（字符串形式），为空表示不参与自动匹配。 */
   pattern: string
+  /**
+   * 终端提示符正则，一行一条，按顺序尝试；第 1 捕获组为命令文本。
+   * 为空时使用内置规则（$ # % 与行首 > ）。
+   * 示例：^(?:Shell >|core\\[\\d+\\]->)\\s+(.*)$
+   */
+  promptPatterns: string
 }
+
+/** 嵌入式 Shell 常用提示符正则示例（Shell > / core[N]->）。 */
+export const EMBEDDED_SHELL_PROMPT_PATTERNS = '^(?:Shell >|core\\[\\d+\\]->)\\s+(.*)$'
+
+/** 默认组预设：兼容 PowerShell 与 Bash/Zsh 的常见提示符。 */
+export const DEFAULT_SHELL_PROMPT_PATTERNS = [
+  '^PS\\s+(?:[^>\\r\\n]+>+)+\\s*(.*)$',
+  '[$%#]\\s*(.*)$',
+  '^>\\s+(.*)$',
+].join('\n')
 
 /** 默认命令配置组，作为兜底，始终存在且不可删除。 */
 export const DEFAULT_COMMAND_PROFILE: CommandProfile = {
   id: 'default',
   name: '默认',
   pattern: '',
+  promptPatterns: DEFAULT_SHELL_PROMPT_PATTERNS,
+}
+
+/** 将多行提示符正则配置解析为数组。 */
+export function parsePromptPatterns (text: string): string[] {
+  return (text || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean)
 }
 
 /**
@@ -43,6 +65,45 @@ export function resolveCommandProfileId (windowName: string, profiles: CommandPr
     }
   }
   return DEFAULT_COMMAND_PROFILE.id
+}
+
+/**
+ * 从终端当前行文本提取用户输入的命令。
+ * 优先尝试配置组自定义提示符正则（捕获组 1），再回退到内置 Shell 规则。
+ */
+export function extractCommandFromTerminalLine (
+  lineText: string,
+  customPatterns: string[] = [],
+): string | null {
+  const line = lineText.replace(/\s+$/, '')
+  if (!line) return null
+
+  for (const pattern of customPatterns) {
+    try {
+      const match = line.match(new RegExp(pattern))
+      if (match && match[1] !== undefined) {
+        const cmd = match[1].trim()
+        if (cmd) return cmd
+      }
+    } catch (e) {
+      // 非法正则忽略
+    }
+  }
+
+  // 内置：$ # % 提示符（不含 >），避免误匹配 `00> BRD TYPE` 等设备输出
+  const shellMatch = line.match(/[$%#]\s*(.*)$/)
+  if (shellMatch) {
+    const cmd = (shellMatch[1] || '').trim()
+    return cmd || null
+  }
+
+  const contMatch = line.match(/^>\s+(.*)$/)
+  if (contMatch) {
+    const cmd = (contMatch[1] || '').trim()
+    return cmd || null
+  }
+
+  return null
 }
 
 /** LLM 调用所需的上下文信息。 */

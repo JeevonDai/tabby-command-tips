@@ -9,7 +9,7 @@ import { ScoringService } from '../services/scoring_service'
 import { ShellDetectorService } from '../services/shell_detector_service'
 import { HistoryService } from '../services/history_service'
 import { LlmService } from '../services/llm_service'
-import { CommandTipsConfig, DEFAULT_CONFIG, LlmContext, resolveCommandProfileId } from '../models'
+import { CommandTipsConfig, DEFAULT_CONFIG, LlmContext, resolveCommandProfileId, extractCommandFromTerminalLine, parsePromptPatterns } from '../models'
 
 /** 终端装饰器，负责监听终端输入、触发动态匹配、渲染下拉建议列表 */
 @Injectable()
@@ -40,6 +40,14 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
   /** 增量匹配缓存：上次匹配的输入和结果。 */
   private lastMatchInput = ''
   private lastMatchResults: MatchResult[] = []
+  /** 手动 Enter 记录：只有用户键盘触发的换行才允许写入命令历史。 */
+  private pendingManualEnters: number[] = []
+  /** Enter 按下瞬间快照的输入内容，避免 sync 从设备输出行误覆盖。 */
+  private pendingSubmitCommand: string | null = null
+  /** 当前这次手动 Enter 是否已写入历史（防止 \\r\\n 重复记录）。 */
+  private submitRecordedForCurrentEnter = false
+  private keydownListenerAttached = false
+  private readonly manualEnterWindowMs = 300
   /** LLM 订阅和状态。 */
   private llmSubscription: Subscription | null = null
   private llmLoading = false
@@ -73,6 +81,7 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
   attach (tab: BaseTerminalTabComponent): void {
     this.logger.info('attach() called')
     this.activeTab = tab
+    this.ensureKeydownListener()
 
     // 监听 tab 获得焦点事件，切换 tab 时更新 activeTab 并恢复其 profile 上下文
     const focusedSub = tab.focused$.subscribe(() => {
@@ -160,13 +169,19 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
 
     document.body.appendChild(this.dropdownEl)
 
-    document.addEventListener('keydown', this.onKeyDown, true)
-
     this.logger.info('Dropdown DOM created')
   }
 
   private onKeyDown = (event: KeyboardEvent): void => {
-    if (!this.dropdownVisible) return
+    const acceptKeys = {
+      enter: this.config.acceptKeys?.enter ?? DEFAULT_CONFIG.acceptKeys.enter,
+      arrowRight: this.config.acceptKeys?.arrowRight ?? DEFAULT_CONFIG.acceptKeys.arrowRight,
+    }
+
+    if (!this.dropdownVisible) {
+      this.trackManualEnter(event)
+      return
+    }
 
     // ESC 键：只要下拉列表显示就应响应
     if (event.key === 'Escape') {
@@ -178,11 +193,9 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
     }
 
     // 方向键和确认键：需要有匹配结果才有意义
-    if (this.currentSuggestions.length === 0) return
-
-    const acceptKeys = {
-      enter: this.config.acceptKeys?.enter ?? DEFAULT_CONFIG.acceptKeys.enter,
-      arrowRight: this.config.acceptKeys?.arrowRight ?? DEFAULT_CONFIG.acceptKeys.arrowRight,
+    if (this.currentSuggestions.length === 0) {
+      this.trackManualEnter(event)
+      return
     }
 
     switch (event.key) {
@@ -197,7 +210,10 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
         this.moveSelection(1)
         break
       case 'Enter':
-        if (!acceptKeys.enter) return
+        if (!acceptKeys.enter) {
+          this.trackManualEnter(event)
+          return
+        }
         event.preventDefault()
         event.stopPropagation()
         this.confirmSelection()
@@ -209,6 +225,33 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
         this.confirmSelection()
         break
     }
+  }
+
+  /** 注册全局键盘监听，确保即使下拉框尚未创建也能识别手动 Enter。 */
+  private ensureKeydownListener (): void {
+    if (this.keydownListenerAttached) return
+    document.addEventListener('keydown', this.onKeyDown, true)
+    this.keydownListenerAttached = true
+  }
+
+  /** 记录由用户键盘触发的 Enter，供随后到达的输入换行消费。 */
+  private trackManualEnter (event: KeyboardEvent): void {
+    if (event.key !== 'Enter') return
+    if (event.isComposing || event.ctrlKey || event.altKey || event.metaKey) return
+    this.pendingSubmitCommand = this.currentInput.trim() || null
+    this.submitRecordedForCurrentEnter = false
+    this.pendingManualEnters.push(Date.now())
+  }
+
+  /** 消费最近一次手动 Enter；远端输出的 CR/LF 不会有对应记录。 */
+  private consumeManualEnter (): boolean {
+    const now = Date.now()
+    this.pendingManualEnters = this.pendingManualEnters.filter(
+      timestamp => now - timestamp <= this.manualEnterWindowMs,
+    )
+    if (this.pendingManualEnters.length === 0) return false
+    this.pendingManualEnters.shift()
+    return true
   }
 
   /** 根据 acceptKeys 配置生成下拉列表底部操作提示 HTML。 */
@@ -487,9 +530,8 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
       }
 
       if (char === '\r' || char === '\n') {
-        this.syncInputFromOutput(tab)
-        if (this.currentInput.trim()) {
-          this.historyService.recordCommand(this.currentInput.trim(), this.currentProfileId, this.currentShellType)
+        if (this.consumeManualEnter()) {
+          this.recordSubmittedCommand(tab)
         }
         this.currentInput = ''
         this.hideDropdown()
@@ -539,6 +581,8 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
 
   // 从终端输出中同步实际的输入内容（处理 Tab 补全、Ctrl+C 后换行等场景）
   private syncInputFromOutput (tab: BaseTerminalTabComponent): void {
+    if (!this.shouldSyncFromBuffer(tab)) return
+
     try {
       const frontend = (tab as any).frontend
       if (!frontend) return
@@ -552,19 +596,57 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
       const lineText = cursorLine.translateToString(true)
       if (!lineText || lineText.length === 0) return
 
-      // 尝试匹配提示符后的内容
-      const promptMatch = lineText.match(/[$%#>]\s*(.*)$/)
-      if (promptMatch && promptMatch[1]) {
-        const actualCommand = promptMatch[1].trim()
-        // 仅当成功提取到非空内容时才更新 currentInput，
-        // 否则保留逐字符累积的结果，避免因终端缓冲区未及时更新而误清空
-        if (actualCommand) {
-          this.currentInput = actualCommand
-        }
+      const actualCommand = extractCommandFromTerminalLine(lineText, this.getActivePromptPatterns())
+      if (actualCommand) {
+        this.currentInput = actualCommand
       }
     } catch (err) {
       // 静默忽略，回退到 currentInput
     }
+  }
+
+  /** 当前配置组的自定义提示符正则列表。 */
+  private getActivePromptPatterns (): string[] {
+    const profiles = this.config.profiles?.length ? this.config.profiles : DEFAULT_CONFIG.profiles
+    const profile = profiles.find(p => p.id === this.currentProfileId)
+    return parsePromptPatterns(profile?.promptPatterns || '')
+  }
+
+  /** 是否允许从终端缓冲区同步输入（设备会话需配置提示符正则后才启用）。 */
+  private shouldSyncFromBuffer (tab: BaseTerminalTabComponent): boolean {
+    if (!this.isDeviceSessionTab(tab)) return true
+    return this.getActivePromptPatterns().length > 0
+  }
+
+  /** 手动 Enter 提交时写入命令历史：优先使用按键快照，避免设备输出行被误记。 */
+  private recordSubmittedCommand (tab: BaseTerminalTabComponent): void {
+    if (this.submitRecordedForCurrentEnter) return
+
+    let command = ''
+    if (this.isDeviceSessionTab(tab)) {
+      // 设备会话只信任 Enter 按下时的快照，忽略随后到达的回显内容
+      command = this.pendingSubmitCommand || ''
+    } else {
+      command = this.pendingSubmitCommand || this.currentInput.trim()
+      if (!command) {
+        this.syncInputFromOutput(tab)
+        command = this.currentInput.trim()
+      }
+    }
+
+    if (command) {
+      this.historyService.recordCommand(command, this.currentProfileId, this.currentShellType)
+      this.submitRecordedForCurrentEnter = true
+    }
+
+    this.pendingSubmitCommand = null
+  }
+
+  /** 判断是否为 telnet/串口等设备会话（无标准 Shell 提示符，不从缓冲区同步命令）。 */
+  private isDeviceSessionTab (tab: BaseTerminalTabComponent | null): boolean {
+    if (!tab) return false
+    const type = (tab as any).profile?.type
+    return type === 'serial' || type === 'telnet' || type === 'raw'
   }
 
   private triggerMatch (): void {
@@ -855,7 +937,10 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
       this.dropdownEl.remove()
       this.dropdownEl = null
     }
-    document.removeEventListener('keydown', this.onKeyDown, true)
+    if (this.keydownListenerAttached) {
+      document.removeEventListener('keydown', this.onKeyDown, true)
+      this.keydownListenerAttached = false
+    }
     this.historyService.dispose()
   }
 

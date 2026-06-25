@@ -9,6 +9,8 @@ import {
   DEFAULT_COMMAND_PROFILE,
   DEFAULT_CONFIG,
   DEFAULT_LLM_CONFIG,
+  EMBEDDED_SHELL_PROMPT_PATTERNS,
+  DEFAULT_SHELL_PROMPT_PATTERNS,
   HistoryEntry,
 } from '../models'
 
@@ -85,11 +87,17 @@ export class SettingsTabComponent {
           id,
           name: (p?.name || id).trim(),
           pattern: typeof p?.pattern === 'string' ? p.pattern : '',
+          promptPatterns: typeof p?.promptPatterns === 'string' ? p.promptPatterns : '',
         })
       }
     }
     if (!seen.has(DEFAULT_COMMAND_PROFILE.id)) {
       result.unshift({ ...DEFAULT_COMMAND_PROFILE })
+    } else {
+      const defaultProfile = result.find(p => p.id === DEFAULT_COMMAND_PROFILE.id)
+      if (defaultProfile && !defaultProfile.promptPatterns.trim()) {
+        defaultProfile.promptPatterns = DEFAULT_SHELL_PROMPT_PATTERNS
+      }
     }
     return result
   }
@@ -147,7 +155,7 @@ export class SettingsTabComponent {
   /** 新增一个命令配置组。 */
   addProfile (): void {
     const id = this.generateProfileId()
-    this.config.profiles.push({ id, name: '新配置组', pattern: '' })
+    this.config.profiles.push({ id, name: '新配置组', pattern: '', promptPatterns: '' })
     this.selectedProfileId = id
     this.save()
   }
@@ -165,6 +173,18 @@ export class SettingsTabComponent {
 
   /** 配置组的名称 / 正则被编辑后保存。 */
   onProfileMetaChanged (): void {
+    this.save()
+  }
+
+  /** 填入嵌入式 Shell 提示符正则预设（Shell > / core[N]->）。 */
+  applyEmbeddedPromptPreset (profile: CommandProfile): void {
+    profile.promptPatterns = EMBEDDED_SHELL_PROMPT_PATTERNS
+    this.save()
+  }
+
+  /** 填入 Bash / PowerShell 通用提示符正则预设。 */
+  applyShellPromptPreset (profile: CommandProfile): void {
+    profile.promptPatterns = DEFAULT_SHELL_PROMPT_PATTERNS
     this.save()
   }
 
@@ -201,6 +221,7 @@ export class SettingsTabComponent {
       id: p.id,
       name: (p.name || p.id).trim(),
       pattern: p.pattern || '',
+      promptPatterns: p.promptPatterns || '',
     }))
 
     // 保存 LLM 配置

@@ -14,6 +14,7 @@
     "watch": "webpack --progress --color --watch",
     "test": "ts-node -P tsconfig.test.json node_modules/jasmine/bin/jasmine --config=jasmine.json",
     "deploy": "node scripts/deploy.js",
+    "build:deploy": "node scripts/deploy.js --build",
     "dev": "webpack --progress --color --watch",
     "prepublishOnly": "npm run build"
   },

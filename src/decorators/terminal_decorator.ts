@@ -70,6 +70,7 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
       this.config = this.configService.store.commandTips || DEFAULT_CONFIG
       this.llmService.setConfig(this.config.llm)
       this.scoringService.invalidateCache()
+      this.listDirty = true
       this.updateFooterHint()
       // 配置组（正则）可能已变化，重新解析当前激活 tab 的 profile
       if (this.activeTab) this.refreshProfileForTab(this.activeTab)
@@ -218,6 +219,12 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
         event.stopPropagation()
         this.confirmSelection()
         break
+      case 'Tab':
+        if (!this.config.tabCompletesFirst) return
+        event.preventDefault()
+        event.stopPropagation()
+        this.confirmFirstSuggestion()
+        break
       case 'ArrowRight':
         if (!acceptKeys.arrowRight) return
         event.preventDefault()
@@ -266,7 +273,10 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
     const confirmHint = confirmParts.length > 0
       ? `<span>${confirmParts.join(' / ')} 补全</span>`
       : ''
-    return `<span>↑↓ 选择</span>${confirmHint}<span>Esc 取消</span>`
+    const tabHint = this.config.tabCompletesFirst
+      ? '<span>Tab 补全首项</span>'
+      : ''
+    return `<span>↑↓ 选择</span>${confirmHint}${tabHint}<span>Esc 取消</span>`
   }
 
   /** 配置变更后刷新底部操作提示。 */
@@ -277,14 +287,37 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
   }
 
   private moveSelection (delta: number): void {
-    this.selectedIndex = Math.max(0, Math.min(this.currentSuggestions.length - 1, this.selectedIndex + delta))
+    this.selectedIndex = Math.max(0, Math.min(this.getSelectableCount() - 1, this.selectedIndex + delta))
     this.updateSelection()
   }
 
   private confirmSelection (): void {
     if (this.currentSuggestions.length === 0) return
+    if (this.selectedIndex === this.getSubmitActionIndex()) {
+      this.submitCurrentInput()
+      return
+    }
     const command = this.currentSuggestions[this.selectedIndex].entry.command
     this.injectCommand(this.activeTab?.session, command)
+  }
+
+  private confirmFirstSuggestion (): void {
+    if (this.currentSuggestions.length === 0) return
+    const command = this.currentSuggestions[0].entry.command
+    this.injectCommand(this.activeTab?.session, command)
+  }
+
+  private getSelectableCount (): number {
+    return this.currentSuggestions.length + (this.shouldShowSubmitAction() ? 1 : 0)
+  }
+
+  private getSubmitActionIndex (): number {
+    return this.shouldShowSubmitAction() ? this.currentSuggestions.length : -1
+  }
+
+  private shouldShowSubmitAction (): boolean {
+    const enterAcceptsSuggestion = this.config.acceptKeys?.enter ?? DEFAULT_CONFIG.acceptKeys.enter
+    return enterAcceptsSuggestion && this.currentSuggestions.length > 0
   }
 
   /** 完整渲染列表 DOM（仅在结果集变化时调用）。 */
@@ -349,6 +382,50 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
         src.textContent = item.entry.source
         el.appendChild(src)
       }
+
+      list.appendChild(el)
+    }
+
+    if (this.shouldShowSubmitAction()) {
+      const actionIndex = this.getSubmitActionIndex()
+      const el = document.createElement('div')
+      el.className = 'ct-item ct-submit-action'
+      el.dataset.index = String(actionIndex)
+      el.style.cssText = `
+        padding: 5px 10px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        border-top: 1px solid rgba(255,255,255,0.08);
+        background: ${actionIndex === this.selectedIndex ? 'var(--theme-accent, #4a9eff)' : 'transparent'};
+        color: ${actionIndex === this.selectedIndex ? 'var(--theme-bg, #1e1e1e)' : 'inherit'};
+      `
+
+      const badge = document.createElement('span')
+      badge.style.cssText = `
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 16px;
+        height: 16px;
+        border-radius: 3px;
+        font-size: 12px;
+        font-weight: bold;
+        flex-shrink: 0;
+        background: rgba(255,255,255,0.12);
+        color: inherit;
+      `
+      badge.textContent = '↵'
+      el.appendChild(badge)
+
+      const label = document.createElement('span')
+      label.style.cssText = 'flex: 1; overflow: hidden; text-overflow: ellipsis;'
+      label.textContent = '直接换行'
+      el.appendChild(label)
 
       list.appendChild(el)
     }
@@ -640,6 +717,24 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
     }
 
     this.pendingSubmitCommand = null
+  }
+
+  /** 下拉列表中选择“直接换行”时，发送 Enter 而不是补全候选项。 */
+  private submitCurrentInput (): void {
+    const tab = this.activeTab
+    const session = tab?.session
+    if (!session) return
+
+    const command = this.currentInput.trim()
+    if (command) {
+      this.historyService.recordCommand(command, this.currentProfileId, this.currentShellType)
+    }
+
+    this.pendingSubmitCommand = null
+    this.submitRecordedForCurrentEnter = true
+    this.currentInput = ''
+    this.hideDropdown()
+    session.write(Buffer.from('\r'))
   }
 
   /** 判断是否为 telnet/串口等设备会话（无标准 Shell 提示符，不从缓冲区同步命令）。 */

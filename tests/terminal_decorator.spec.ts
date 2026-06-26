@@ -61,6 +61,8 @@ describe('CommandTipsTerminalDecorator', () => {
     decoratorAny.activeTab = tab
     decoratorAny.tabProfiles.set(tab, 'default')
     decoratorAny.tabShellTypes.set(tab, 'bash')
+    decoratorAny.currentProfileId = 'default'
+    decoratorAny.currentShellType = 'bash'
     decoratorAny.triggerMatch = () => {}
     decoratorAny.hideDropdown = () => {}
   })
@@ -169,5 +171,65 @@ describe('CommandTipsTerminalDecorator', () => {
 
     decoratorAny.syncInputFromOutput(telnetTab)
     expect(decoratorAny.currentInput).toBe('brdinfo')
+  })
+
+  it('Tab 应按配置补全第一条候选命令', () => {
+    const session = { write: jasmine.createSpy('write') }
+    tab.session = session
+    decoratorAny.currentInput = 'gi'
+    decoratorAny.dropdownVisible = true
+    decoratorAny.currentSuggestions = [{
+      entry: {
+        command: 'git status',
+        source: 'tabby',
+        shellType: 'bash',
+        profileId: 'default',
+        timestamp: 0,
+        count: 1,
+      },
+      matchType: 'prefix',
+    }]
+
+    decoratorAny.onKeyDown({
+      key: 'Tab',
+      preventDefault: jasmine.createSpy('preventDefault'),
+      stopPropagation: jasmine.createSpy('stopPropagation'),
+    } as any as KeyboardEvent)
+
+    expect(session.write).toHaveBeenCalledOnceWith(Buffer.from('t status'))
+    expect(decoratorAny.currentInput).toBe('git status')
+  })
+
+  it('选中 Enter 直接换行选项时不应补全候选命令', () => {
+    const session = { write: jasmine.createSpy('write') }
+    tab.session = session
+    decoratorAny.currentInput = 'git status'
+    decoratorAny.dropdownVisible = true
+    decoratorAny.currentSuggestions = [{
+      entry: {
+        command: 'git status --short',
+        source: 'tabby',
+        shellType: 'bash',
+        profileId: 'default',
+        timestamp: 0,
+        count: 1,
+      },
+      matchType: 'prefix',
+    }]
+    decoratorAny.selectedIndex = 1
+
+    decoratorAny.onKeyDown({
+      key: 'Enter',
+      isComposing: false,
+      ctrlKey: false,
+      altKey: false,
+      metaKey: false,
+      preventDefault: jasmine.createSpy('preventDefault'),
+      stopPropagation: jasmine.createSpy('stopPropagation'),
+    } as any as KeyboardEvent)
+
+    expect(session.write).toHaveBeenCalledOnceWith(Buffer.from('\r'))
+    expect(historyService.recordCommand).toHaveBeenCalledOnceWith('git status', 'default', 'bash')
+    expect(decoratorAny.currentInput).toBe('')
   })
 })

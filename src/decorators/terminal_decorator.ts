@@ -8,6 +8,7 @@ import { MatchingService, MatchResult } from '../services/matching_service'
 import { ScoringService } from '../services/scoring_service'
 import { ShellDetectorService } from '../services/shell_detector_service'
 import { HistoryService } from '../services/history_service'
+import { CommandTipsI18nService } from '../services/i18n_service'
 import { LlmService } from '../services/llm_service'
 import { CommandTipsConfig, DEFAULT_CONFIG, LlmContext, resolveCommandProfileId, extractCommandFromTerminalLine, parsePromptPatterns } from '../models'
 
@@ -61,6 +62,7 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
     private readonly historyService: HistoryService,
     private readonly llmService: LlmService,
     private readonly log: LogService,
+    private readonly i18n: CommandTipsI18nService,
   ) {
     super()
     this.logger = log.create('command-tips')
@@ -271,12 +273,12 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
     if (acceptKeys.enter) confirmParts.push('Enter')
     if (acceptKeys.arrowRight) confirmParts.push('→')
     const confirmHint = confirmParts.length > 0
-      ? `<span>${confirmParts.join(' / ')} 补全</span>`
+      ? `<span>${confirmParts.join(' / ')}${this.i18n.t(' complete')}</span>`
       : ''
     const tabHint = this.config.tabCompletesFirst
-      ? '<span>Tab 补全首项</span>'
+      ? `<span>${this.i18n.t('Tab completes first')}</span>`
       : ''
-    return `<span>↑↓ 选择</span>${confirmHint}${tabHint}<span>Esc 取消</span>`
+    return `<span>${this.i18n.t('↑↓ Navigate')}</span>${confirmHint}${tabHint}<span>${this.i18n.t('Esc Cancel')}</span>`
   }
 
   /** 配置变更后刷新底部操作提示。 */
@@ -424,7 +426,7 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
 
       const label = document.createElement('span')
       label.style.cssText = 'flex: 1; overflow: hidden; text-overflow: ellipsis;'
-      label.textContent = '直接换行'
+      label.textContent = this.i18n.t('Submit as-is')
       el.appendChild(label)
 
       list.appendChild(el)
@@ -1067,10 +1069,10 @@ export class CommandTipsTerminalDecorator extends TerminalDecorator {
     }
 
     if (this.llmLoading) {
-      statusEl.textContent = '⏳ AI 加载中...'
+      statusEl.textContent = this.i18n.t('⏳ Loading AI...')
       statusEl.style.display = 'block'
     } else if (this.llmLoaded) {
-      statusEl.textContent = '✓ AI 已加载'
+      statusEl.textContent = this.i18n.t('✓ AI loaded')
       statusEl.style.display = 'block'
     } else {
       statusEl.style.display = 'none'

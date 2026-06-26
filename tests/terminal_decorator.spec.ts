@@ -38,6 +38,9 @@ describe('CommandTipsTerminalDecorator', () => {
       setConfig: () => {},
       isAvailable: () => false,
     }
+    const i18n = {
+      t: (key: string) => key,
+    }
     const log = {
       create: () => ({
         warn: () => {},
@@ -54,6 +57,7 @@ describe('CommandTipsTerminalDecorator', () => {
       historyService,
       llmService as any,
       log as any,
+      i18n as any,
     )
     decoratorAny = decorator as any
 
@@ -164,7 +168,7 @@ describe('CommandTipsTerminalDecorator', () => {
     decoratorAny.currentProfileId = 'default'
     decoratorAny.config.profiles = [{
       id: 'default',
-      name: '默认',
+      name: 'Default',
       pattern: '',
       promptPatterns: '^(?:Shell >|core\\[\\d+\\]->)\\s+(.*)$',
     }]

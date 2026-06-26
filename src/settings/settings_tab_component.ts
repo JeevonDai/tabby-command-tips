@@ -1,8 +1,10 @@
 // 插件设置页面组件，提供触发、匹配、排序、显示等配置选项
-import { Component } from '@angular/core'
+import { Component, ChangeDetectorRef, OnDestroy } from '@angular/core'
 import { ConfigService } from 'tabby-core'
+import { Subscription } from 'rxjs'
 
 import { HistoryService } from '../services/history_service'
+import { CommandTipsI18nService } from '../services/i18n_service'
 import {
   CommandProfile,
   CommandTipsConfig,
@@ -19,7 +21,8 @@ import {
   template: require('./settings_tab_component.pug'),
   styles: [require('./settings_tab_component.scss')],
 })
-export class SettingsTabComponent {
+export class SettingsTabComponent implements OnDestroy {
+  private localeSub: Subscription | null = null
   public draggingRowIndex: number | null = null
   /** 当前在「命令编辑」区域选中的配置组 id。 */
   public selectedProfileId = DEFAULT_COMMAND_PROFILE.id
@@ -33,6 +36,8 @@ export class SettingsTabComponent {
   constructor (
     private readonly configService: ConfigService,
     private readonly historyService: HistoryService,
+    private readonly i18n: CommandTipsI18nService,
+    private readonly cdr: ChangeDetectorRef,
   ) {
     const stored = this.configService.store.commandTips
     if (stored) {
@@ -72,6 +77,14 @@ export class SettingsTabComponent {
     this.selectedProfileId = this.config.profiles.some(p => p.id === active)
       ? active
       : DEFAULT_COMMAND_PROFILE.id
+
+    this.localeSub = this.i18n.localeChanged$.subscribe(() => {
+      this.cdr.markForCheck()
+    })
+  }
+
+  ngOnDestroy (): void {
+    this.localeSub?.unsubscribe()
   }
 
   /** 规范化配置组列表：保证始终存在默认组且 id 唯一。 */
@@ -130,11 +143,24 @@ export class SettingsTabComponent {
     return this.historyService.getCurrentProfileId()
   }
 
+  /** 供模板使用的翻译函数。 */
+  t (key: string, params?: Record<string, string | number>): string {
+    return this.i18n.t(key, params)
+  }
+
   /** 选中配置组的展示名称。 */
   get activeProfileName (): string {
     const id = this.activeProfileId
     const profile = this.config.profiles.find(p => p.id === id)
-    return profile ? profile.name : id
+    return profile ? this.getProfileDisplayName(profile) : id
+  }
+
+  /** 展示配置组名称；默认组使用翻译后的「Default」。 */
+  getProfileDisplayName (profile: CommandProfile): string {
+    if (profile.id === DEFAULT_COMMAND_PROFILE.id) {
+      return this.i18n.t('Default')
+    }
+    return profile.name
   }
 
   /** 选中配置组的命令列表（可直接编辑）。 */
@@ -155,7 +181,12 @@ export class SettingsTabComponent {
   /** 新增一个命令配置组。 */
   addProfile (): void {
     const id = this.generateProfileId()
-    this.config.profiles.push({ id, name: '新配置组', pattern: '', promptPatterns: '' })
+    this.config.profiles.push({
+      id,
+      name: this.i18n.t('New profile'),
+      pattern: '',
+      promptPatterns: '',
+    })
     this.selectedProfileId = id
     this.save()
   }

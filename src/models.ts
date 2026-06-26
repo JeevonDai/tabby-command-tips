@@ -37,7 +37,7 @@ export const DEFAULT_SHELL_PROMPT_PATTERNS = [
 /** 默认命令配置组，作为兜底，始终存在且不可删除。 */
 export const DEFAULT_COMMAND_PROFILE: CommandProfile = {
   id: 'default',
-  name: '默认',
+  name: 'Default',
   pattern: '',
   promptPatterns: DEFAULT_SHELL_PROMPT_PATTERNS,
 }
